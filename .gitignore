@@ -1,0 +1,36 @@
+# ─────────────────────────────────────────────────────────────
+# daily-learn-app / Project Echo — .gitignore
+# ─────────────────────────────────────────────────────────────
+
+# --- Dependencies & build artifacts ---
+node_modules/
+app/node_modules/
+app/.expo/
+app/dist/
+app/web-build/
+*.tsbuildinfo
+
+# --- Secrets & env ---
+.env
+*.env
+!*.env.example
+app/.env
+!app/.env.example
+
+# --- Local tooling noise ---
+.playwright-mcp/
+**/settings.local.json
+.DS_Store
+*.log
+
+# ─────────────────────────────────────────────────────────────
+# LOCAL-ONLY strategy docs — NEVER pushed to the public repo.
+# These contain fundraising terms, competitive-positioning risk,
+# machine-specific paths / API-key locations, and research
+# hypotheses. Kept on disk for local use only.
+# (See README "Repo layout" for the public/private split.)
+# ─────────────────────────────────────────────────────────────
+docs/03-fundraising/
+docs/04-research/
+docs/01-product/competitors.md
+docs/01-product/architecture.md
