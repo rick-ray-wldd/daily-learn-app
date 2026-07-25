@@ -40,3 +40,17 @@
 ## 工作慣例
 - 每週日晚上更新 `weekly-log/`，週一 NTU Day 直接拿去報告
 - 所有 metrics 以 `docs/02-execution/six-week-plan.md` 底部的「可融資里程碑」為準
+
+## Agent skills
+
+### Issue tracker
+
+Issues and PRDs are tracked in this public repository's GitHub Issues; publish only public-safe material. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Use the five default canonical triage labels. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+This repository uses a single-context domain layout. See `docs/agents/domain.md`.
