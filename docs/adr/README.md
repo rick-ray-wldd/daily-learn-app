@@ -19,3 +19,4 @@ covering the area they touch. Copy `0000-template.md` for new ones.
 | [0010](0010-minimal-type-aware-practice.md) | Minimal type-aware practice flow (not six templates, not fully uniform) | accepted |
 | [0011](0011-honest-bounded-session.md) | Daily session "honest but bounded": N=5 strong cap, overflow carries over | accepted |
 | [0012](0012-single-learning-focus.md) | One learning focus per capture; multi-candidate diagnosis deferred | accepted |
+| [0013](0013-anonymous-auth-and-rls.md) | Anonymous auth is the identity floor; RLS scopes every row to its owner | accepted |

@@ -2,5 +2,13 @@
   "extends": "expo/tsconfig.base",
   "compilerOptions": {
     "strict": true
-  }
+  },
+  "exclude": [
+    "node_modules",
+    "dist",
+    // Edge Functions 跑在 Deno，不是 React Native：用 npm: 指定符、.ts 副檔名
+    // import、全域 Deno 物件，全都不該由 Expo 的 tsconfig 檢查。
+    // 型別檢查請用 `deno check supabase/functions/**/index.ts`。
+    "supabase/functions"
+  ]
 }

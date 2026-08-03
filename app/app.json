@@ -7,7 +7,14 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.rickray.echo",
+      "infoPlist": {
+        "NSMicrophoneUsageDescription": "Echo 需要麥克風來錄下你的跟讀練習，並用你自己的聲音當作示範音。錄音只存在你的裝置與你的帳號下。"
+      },
+      "config": {
+        "usesNonExemptEncryption": false
+      }
     },
     "android": {
       "adaptiveIcon": {

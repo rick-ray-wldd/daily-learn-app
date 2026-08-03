@@ -1,0 +1,8 @@
+{
+  "//": "Edge Functions 跑在 Deno（不是 React Native）。版本釘在這裡，讓本機 `deno check` 與線上部署解析到同一份相依。",
+  "nodeModulesDir": "auto",
+  "imports": {
+    "@anthropic-ai/sdk": "npm:@anthropic-ai/sdk@^0.115.0",
+    "@supabase/supabase-js": "npm:@supabase/supabase-js@^2.111.0"
+  }
+}

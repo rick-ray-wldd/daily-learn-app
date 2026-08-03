@@ -19,7 +19,7 @@ import * as Notifications from 'expo-notifications';
 
 import PodcastBrowser from './components/PodcastBrowser';
 import { DEMO_EPISODES, Episode } from './lib/episodes';
-import { isSupabaseConfigured } from './lib/supabase';
+import { ensureSession, isSupabaseConfigured } from './lib/supabase';
 import { makeReplayEvent, ReplayEvent, syncReplayEvent } from './lib/replay';
 import { ingestReplayEvent, noteRateChange } from './lib/captureEngine';
 import {
@@ -97,6 +97,13 @@ export default function App() {
     player.setPlaybackRate(RATES[rateIndex], 'high');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [episode.id]);
+
+  // 建立匿名 session（第一次啟動時註冊，之後從 AsyncStorage 還原）。
+  // 沒有它：RLS 讀不到自己的資料、Edge Function 會回 401、指標也無法歸屬到人。
+  // 失敗不擋 UI —— ensureSession 永遠不 throw，回 null 就是本地模式。
+  useEffect(() => {
+    void ensureSession();
+  }, []);
 
   // Hydrate the local store and keep the practice-tab badge in sync
   // (badge = 正式佇列數：昨天以前的 pending + confirmed 但沒評分過的孤兒卡

@@ -3,34 +3,28 @@
  *
  * 路徑選擇（transcribe()）：
  *   1. disk cache（永久，跨重啟）
- *   2. episode.transcriptUrl（podcast:transcript srt/vtt）→ 免 key 免成本
- *   3. Whisper（需 EXPO_PUBLIC_OPENAI_API_KEY）：
- *      download episode mp3 → cache
- *      → FileSystem.uploadAsync multipart to OpenAI /v1/audio/transcriptions
- *        (model whisper-1, response_format verbose_json → segment timestamps)
- *      → store segments JSON in cache, delete the mp3, record a pointer in
- *        the store so we never transcribe the same episode twice.
+ *   2. episode.transcriptUrl（podcast:transcript srt/vtt）→ 免 key 免成本，
+ *      整段都在 client 做，不需要 server
+ *   3. Whisper → 交給 `transcribe` Edge Function（ADR-0008）：client 只送
+ *      audioUrl，**由 server 下載 mp3 並轉給 Whisper**，回傳 segments 後
+ *      存進 disk cache 並在 store 記一個 pointer，同一集不會轉錄兩次。
+ *
+ * 為什麼把音檔留在 server 側：手機不必再用行動網路上傳 20MB+；而且 client
+ * 沒有 ffmpeg（見下方 25MB 註記），未來要切檔只需改 server，不用發新版 app。
  *
  * Cost note: Whisper is ~$0.006 / audio minute → a 25-minute episode is
- * about $0.15. The 25MB upload limit (OpenAI hard cap) is checked before
- * uploading; larger files fail fast with a reason (no ffmpeg in Expo Go, so
- * we can't split/compress client-side — W3 problem).
- *
- * ⚠️ SECURITY TODO (W3): EXPO_PUBLIC_* vars are baked into the JS bundle —
- * anyone with the app binary can extract this key. Acceptable ONLY for the
- * founder-dogfood phase. Move transcription to a Supabase Edge Function
- * (server-side key) before sharing builds with anyone else.
+ * about $0.15。25MB 是 OpenAI 硬上限，server 端會擋，client 端先用 RSS 宣告的
+ * enclosure 大小快篩，省掉一次來回。
  */
 import * as FileSystem from 'expo-file-system/legacy';
 
 import { Episode } from './episodes';
 import { fetchWithTimeout } from './rss';
 import { getTranscriptMeta, setTranscriptMeta } from './store';
+import { ensureSession, supabase } from './supabase';
 import { parseSrt, parseVtt } from './transcriptFormats';
 import { TranscriptSegment } from './types';
 
-const OPENAI_API_KEY = process.env.EXPO_PUBLIC_OPENAI_API_KEY;
-const WHISPER_URL = 'https://api.openai.com/v1/audio/transcriptions';
 const MAX_UPLOAD_BYTES = 25 * 1024 * 1024; // Whisper hard limit
 
 export type TranscriptResult =
@@ -46,13 +40,14 @@ export interface WindowSentences {
   after?: TranscriptSegment;
 }
 
+/** Whisper 走 Edge Function，所以「能不能轉錄」＝ Supabase 有沒有設定好。 */
 export function isTranscriptionConfigured(): boolean {
-  return Boolean(OPENAI_API_KEY);
+  return supabase !== null;
 }
 
-/** 有 OpenAI key 或該集自帶 RSS 逐字稿即可轉錄。 */
+/** 有 Whisper 後端或該集自帶 RSS 逐字稿即可轉錄。 */
 export function canTranscribe(episode: Episode): boolean {
-  return Boolean(OPENAI_API_KEY) || Boolean(episode.transcriptUrl);
+  return isTranscriptionConfigured() || Boolean(episode.transcriptUrl);
 }
 
 const memoryCache = new Map<string, TranscriptSegment[]>();
@@ -68,20 +63,16 @@ function transcriptPath(episodeId: string): string {
   return `${transcriptDir()}${episodeId}.json`;
 }
 
-function audioPath(episodeId: string): string {
-  return `${transcriptDir()}${episodeId}.mp3`;
-}
-
 /**
  * Ensure a transcript exists for the episode.
- * Returns null when neither an OpenAI key nor an RSS transcript is available
- * (UI shows 「逐字稿待轉錄」).
+ * Returns null when neither the Whisper backend nor an RSS transcript is
+ * available (UI shows 「逐字稿待轉錄」).
  * Never throws — failures come back as { status: 'failed', reason }.
  */
 export async function ensureTranscript(
   episode: Episode,
 ): Promise<TranscriptResult | null> {
-  if (!OPENAI_API_KEY && !episode.transcriptUrl) return null;
+  if (!canTranscribe(episode)) return null;
 
   const cached = memoryCache.get(episode.id);
   if (cached) return { status: 'ready', segments: cached };
@@ -147,17 +138,17 @@ async function transcribe(episode: Episode): Promise<TranscriptResult> {
         });
         return { status: 'ready', segments: segs };
       }
-      if (!OPENAI_API_KEY) {
+      if (!isTranscriptionConfigured()) {
         return fail(
           episode.id,
-          '官方逐字稿下載/解析失敗，且未設定 OpenAI key 無法改用 Whisper',
+          '官方逐字稿下載/解析失敗，且未設定 Supabase 無法改用 Whisper',
         );
       }
-      // 有 key → fall through 走原 Whisper 流程
+      // 有後端 → fall through 走 Whisper 流程
     }
 
-    // 3. Whisper 前快篩：enclosure length 超過 25MB 直接放棄（免下載流量；
-    //    length 可能缺或亂寫，下載後仍有實際大小檢查）。
+    // 3. Whisper 前快篩：enclosure length 超過 25MB 直接放棄，省掉一次來回
+    //    （length 可能缺或亂寫，server 端下載後仍有實際大小檢查）。
     if (episode.enclosureBytes && episode.enclosureBytes > MAX_UPLOAD_BYTES) {
       const mb = (episode.enclosureBytes / (1024 * 1024)).toFixed(1);
       return fail(
@@ -166,66 +157,40 @@ async function transcribe(episode: Episode): Promise<TranscriptResult> {
       );
     }
 
-    // 4. Download the mp3 into cache.
-    const mp3 = audioPath(episode.id);
-    const mp3Info = await FileSystem.getInfoAsync(mp3);
-    if (!mp3Info.exists) {
-      const dl = await FileSystem.downloadAsync(episode.audioUrl, mp3);
-      if (dl.status !== 200) {
-        return fail(episode.id, `音檔下載失敗（HTTP ${dl.status}）`);
-      }
-    }
+    // 4. 交給 Edge Function：只送 audioUrl，mp3 由 server 下載並轉給 Whisper
+    //    （ADR-0008 — provider key 不再進 client bundle）。
+    if (!supabase) return fail(episode.id, '未設定 Supabase，無法轉錄');
 
-    // 5. Whisper hard limit: 25MB. No ffmpeg in Expo Go → give up with reason.
-    const sized = await FileSystem.getInfoAsync(mp3);
-    if (sized.exists && typeof sized.size === 'number' && sized.size > MAX_UPLOAD_BYTES) {
-      const mb = (sized.size / (1024 * 1024)).toFixed(1);
-      await FileSystem.deleteAsync(mp3, { idempotent: true });
-      return fail(
-        episode.id,
-        `音檔 ${mb}MB 超過 Whisper 25MB 上限（Expo Go 無法切檔，W3 移到 server 處理）`,
-      );
-    }
+    const userId = await ensureSession();
+    if (!userId) return fail(episode.id, '尚未建立 session，無法轉錄');
 
-    // 6. Multipart upload to Whisper. ~$0.006 per audio minute.
-    const upload = await FileSystem.uploadAsync(WHISPER_URL, mp3, {
-      httpMethod: 'POST',
-      headers: { Authorization: `Bearer ${OPENAI_API_KEY}` },
-      uploadType: FileSystem.FileSystemUploadType.MULTIPART,
-      fieldName: 'file',
-      mimeType: 'audio/mpeg',
-      parameters: {
-        model: 'whisper-1',
-        response_format: 'verbose_json',
-      },
+    const { data, error } = await supabase.functions.invoke('transcribe', {
+      body: { episodeId: episode.id, audioUrl: episode.audioUrl },
     });
 
-    if (upload.status !== 200) {
-      return fail(
-        episode.id,
-        `Whisper 回應 ${upload.status}: ${upload.body?.slice(0, 200)}`,
-      );
+    if (error) {
+      return fail(episode.id, `轉錄服務失敗：${error.message}`);
     }
 
-    const parsed = JSON.parse(upload.body) as {
-      segments?: { id: number; start: number; end: number; text: string }[];
-    };
-    const segments: TranscriptSegment[] = (parsed.segments ?? []).map((s) => ({
-      id: s.id,
-      start: s.start,
-      end: s.end,
-      text: s.text.trim(),
-    }));
+    const result = data as
+      | { status: 'ready'; segments: TranscriptSegment[] }
+      | { status: 'failed'; reason: string }
+      | null;
+
+    if (!result || result.status !== 'ready') {
+      return fail(episode.id, result?.reason ?? '轉錄服務回傳非預期結果');
+    }
+
+    const segments: TranscriptSegment[] = result.segments ?? [];
     if (segments.length === 0) {
       return fail(episode.id, 'Whisper 回傳空的 segments');
     }
 
-    // 7. Cache the result, free the 20MB+ mp3.
+    // 5. Cache the result.
     await FileSystem.writeAsStringAsync(
       transcriptPath(episode.id),
       JSON.stringify(segments),
     );
-    await FileSystem.deleteAsync(mp3, { idempotent: true });
 
     memoryCache.set(episode.id, segments);
     setTranscriptMeta({
