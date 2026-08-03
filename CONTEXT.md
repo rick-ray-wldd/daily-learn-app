@@ -26,6 +26,28 @@ real-life capture → AR-glasses ambient coach.
 
 Use these terms exactly. _Avoid_ the listed substitutes — consistency is the point.
 
+**Active podcast learner（主動型 podcast learner）** — a learner who already
+responds to comprehension gaps while listening by replaying, looking things up, or
+recording difficult language for later study. The core learner for Phase 1.
+_Avoid_: "heavy learner", "power user".
+
+**Casual podcast learner（順便型 podcast learner）** — a learner who wants to
+improve their English through podcasts but normally stops at listening or replaying,
+without systematically organising difficult language for later study.
+_Avoid_: "light learner".
+
+**Comprehension profile（理解能力輪廓）** — an evolving, multidimensional view of
+a learner's English listening comprehension across the six difficulty types. An
+optional initial level may seed it, but real listening and practice evidence
+continually revises it. _Avoid_: "AI level", "fixed proficiency score".
+
+**Audio–text contrast probe（音訊—文字對照校準）** — a short onboarding activity
+whose starting difficulty is chosen from a learner's self-assessment. The learner
+first listens without a transcript, then uses the revealed text to distinguish what
+they heard, what they knew only in writing, and what they did not know; the result
+seeds the comprehension profile with low confidence and becomes their first
+demonstration capture. _Avoid_: "placement test", "CEFR test".
+
 **Replay event** — one backward seek. Today a Back-15s button press; in the dev-build
 phase a headphone/lock-screen remote command; in Phase 2 an AirPods gesture. Every
 replay event is one row in `replay_events`, distinguished only by `trigger_source`.
@@ -46,6 +68,28 @@ events: an episode-relative difficulty window `[window_start, window_end]`, a pa
 central domain object (`Capture` in `app/lib/types.ts`). _Avoid_: "clip", "snip",
 "bookmark".
 
+**Learning focus（學習焦點）** — the single word, phrase, sound pattern, grammatical
+structure, accent feature, or cultural reference a capture's **diagnosis** pins as the
+thing the learner struggled with. Exactly **one per capture** (surfaced in code as
+`Diagnosis.focus_phrase`). _Avoid_: "keyword".
+
+**Focus confirmation（焦點確認）** — the learner's judgment, made during next-day
+triage, of whether a capture's **learning focus** was something they actually
+struggled with at the time of the **replay event**. It is the same capture-level
+**Confirm / Dismiss** gesture, read as a judgment about the focus; separate from
+whether they already knew it or mastered it after practice. _Avoid_: "known/unknown"
+as a substitute for this judgment.
+
+> A capture carries **one** learning focus, not a set of competing candidates. The
+> earlier multi-candidate model (a "focus candidate set" of up to three) is
+> **deferred** — see [ADR-0012](docs/adr/0012-single-learning-focus.md).
+
+**Capture accuracy（Capture 準確度）** — the combined quality of identifying a
+genuine comprehension gap, preserving the correct full-sentence window, and finding
+the correct learning focus. `confirm rate` measures only the first part; diagnosis
+usefulness is evaluated separately. _Avoid_: using "confirm rate" for end-to-end
+accuracy.
+
 **Capture status** — the state machine axis: `pending` → `confirmed` | `dismissed`,
 and `practiced`. `pending` captures surface in tomorrow's session; the learner
 confirms ("really didn't get it") or dismisses ("just distracted"). _Avoid_:
@@ -65,14 +109,22 @@ second exposure to the difficulty (spaced review), (c) the moment the app feels 
 it understands them. **Never** shown as a modal during listening — interrupting the
 listening flow is forbidden (the Snipd lesson).
 
-**Diagnosis** — the LLM's classification of *why* a capture was hard, into one of six
-**difficulty types**: `vocab` | `linking` | `speed` | `grammar` | `accent` |
-`culture`. Carries a `focus_phrase`, a `explanation_zh`, and a `practice_tip_zh`.
-The diagnosis type routes the capture to a practice template. **The diagnosis layer
-is the start of the moat** — the longer it runs, the better it knows *this* learner's
-weakness pattern.
+**Diagnosis** — the LLM's classification of *why* a capture was hard: a single
+**difficulty type** (`vocab` | `linking` | `speed` | `grammar` | `accent` |
+`culture`), the one **learning focus** that caused it, a short explanation, and a
+practice tip. Forced through a strict-schema tool call, so the output is
+guaranteed-parseable. The difficulty type routes the capture to its **practice
+template**. **The diagnosis layer is the start of the moat** — the longer it runs, the
+better it knows *this* learner's weakness pattern.
 
 **Difficulty type** — the six-way classification above. _Avoid_: "category", "tag".
+
+**Practice template** — the treatment a capture receives in the **daily session**,
+selected by its **difficulty type**. W3 runs one shared template (re-listen → reveal
+transcript → shadow → SRS card) with type exceptions: `culture` gets an explanation
+only (no shadowing, no **SRS item**); `linking` / `speed` start from slow (0.7×)
+playback. The full per-type templates of signal-design §5 are deferred — see
+[ADR-0010](docs/adr/0010-minimal-type-aware-practice.md). _Avoid_: "lesson type".
 
 **Mirror** — the golden-speaker feature: the hard sentence re-spoken in the learner's
 own cloned voice (fluent version), heard alongside the native original and the
@@ -83,8 +135,14 @@ Fish Audio. _Avoid_: "TTS", "voice-over" (too generic).
 reused as: Fish clone sample, IndexTTS-2 speaker reference, and pronunciation baseline.
 Stored in `voice_profiles`.
 
-**Daily session** — the once-a-day practice queue: all `pending` captures (strong
-first) plus due SRS items. The product's north-star surface. _Avoid_: "lesson".
+**Daily session** — the once-a-day practice queue built from the previous day: all
+carried-over `pending` captures (strong first) for triage, the day's due **SRS items**,
+and the practice of the session's **strong** captures. It is **complete** when every
+pending capture is triaged, every in-scope strong capture is practiced, and all due
+reviews are done — weak captures need only triage. Captures rewound *today* form a
+separate 搶先 (get-ahead) tier that does not count toward completion. The product's
+north-star surface; the bound and cap live in
+[ADR-0011](docs/adr/0011-honest-bounded-session.md). _Avoid_: "lesson".
 
 **SRS item** — a simplified SM-2 spaced-repetition record, one per confirmed capture
 (`ease` from 2.5, `interval_days`, `due_date`, `reps`).

@@ -16,3 +16,6 @@ covering the area they touch. Copy `0000-template.md` for new ones.
 | [0007](0007-claude-strict-schema-diagnosis.md) | Diagnosis via Claude strict-schema tool call | accepted |
 | [0008](0008-provider-keys-to-edge-functions.md) | Client provider keys are dogfood-only → Edge Functions by W3 | accepted |
 | [0009](0009-mirror-voice-pipeline.md) | Mirror voice: IndexTTS-2 (proto) → Fish Audio (prod) | accepted |
+| [0010](0010-minimal-type-aware-practice.md) | Minimal type-aware practice flow (not six templates, not fully uniform) | accepted |
+| [0011](0011-honest-bounded-session.md) | Daily session "honest but bounded": N=5 strong cap, overflow carries over | accepted |
+| [0012](0012-single-learning-focus.md) | One learning focus per capture; multi-candidate diagnosis deferred | accepted |
