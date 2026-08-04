@@ -56,8 +56,9 @@ function buildPrompt(sentence: string, context?: string): string {
     '請診斷「最可能」的聽不懂原因（六選一），並用 report_diagnosis 工具回報：',
     '- type: vocab(生詞片語) / linking(連音弱讀) / speed(語速) / grammar(文法結構) / accent(口音) / culture(文化背景)',
     '- focus_phrase: 造成困難的那個原文詞/片語（保留英文原文）',
-    '- explanation_zh: 中文解釋，60 字以內',
-    '- practice_tip_zh: 中文練習建議，40 字以內',
+    // 不指定字體模型會在簡繁之間飄（annotate 實測同一次回應裡簡繁並存）。
+    '- explanation_zh: **繁體中文（台灣用語）**解釋，60 字以內。絕對不要用簡體字',
+    '- practice_tip_zh: **繁體中文（台灣用語）**練習建議，40 字以內。絕對不要用簡體字',
     '',
     `聽不懂的句子：${sentence}`,
     context ? `前後文：${context}` : '',

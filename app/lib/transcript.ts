@@ -1,20 +1,21 @@
 /**
- * Transcripts — RSS 官方逐字稿優先，Whisper 為 fallback。
+ * Transcripts — RSS 官方逐字稿優先，Whisper 窗口化為 fallback（ADR-0005）。
  *
- * 路徑選擇（transcribe()）：
- *   1. disk cache（永久，跨重啟）
- *   2. episode.transcriptUrl（podcast:transcript srt/vtt）→ 免 key 免成本，
- *      整段都在 client 做，不需要 server
- *   3. Whisper → 交給 `transcribe` Edge Function（ADR-0008）：client 只送
- *      audioUrl，**由 server 下載 mp3 並轉給 Whisper**，回傳 segments 後
- *      存進 disk cache 並在 store 記一個 pointer，同一集不會轉錄兩次。
+ * 兩種來源、兩種形狀：
  *
- * 為什麼把音檔留在 server 側：手機不必再用行動網路上傳 20MB+；而且 client
- * 沒有 ffmpeg（見下方 25MB 註記），未來要切檔只需改 server，不用發新版 app。
+ *   RSS `podcast:transcript`  → 一次拿到整集，免費，**所有窗口立刻標記為已覆蓋**
+ *   Whisper（Edge Function）  → 一次只轉一個 10 分鐘窗口，逐段累積
  *
- * Cost note: Whisper is ~$0.006 / audio minute → a 25-minute episode is
- * about $0.15。25MB 是 OpenAI 硬上限，server 端會擋，client 端先用 RSS 宣告的
- * enclosure 大小快篩，省掉一次來回。
+ * 為什麼窗口化：ADR-0005 早就規定只轉錄「學習者實際在聽的鄰近範圍」，但從未
+ * 實作。整集送 Whisper 有兩個硬傷——25MB 上限（135MB 的 2.5 小時單集直接出局），
+ * 以及沒人在聽的部分也要付錢。伺服器端改用 HTTP Range 取位元組切片後，10 分鐘
+ * 窗口約 9MB / $0.06，而且實測起點偏差 0.0 秒。
+ *
+ * 窗口對齊到固定邊界（`floor(t / WINDOW_SEC)`），所以覆蓋範圍只是一個索引集合，
+ * 不需要區間合併邏輯，重複請求也自然被去重。
+ *
+ * 預抓：`ensureWindowFor(t)` 會把 t 所在的窗口與**下一個**窗口一起排進來。
+ * 伺服器端一個 10 分鐘窗口要 45–60 秒，等使用者滑到才要就一定來不及。
  */
 import * as FileSystem from 'expo-file-system/legacy';
 
@@ -25,7 +26,10 @@ import { ensureSession, supabase } from './supabase';
 import { parseSrt, parseVtt } from './transcriptFormats';
 import { TranscriptSegment } from './types';
 
-const MAX_UPLOAD_BYTES = 25 * 1024 * 1024; // Whisper hard limit
+/** 與 Edge Function 的 MAX_WINDOW_SEC 一致；改一邊就要改另一邊。 */
+const WINDOW_SEC = 600;
+/** 播放位置距離已覆蓋範圍的尾端小於這個秒數就預抓下一段。 */
+const PREFETCH_LEAD_SEC = 150;
 
 export type TranscriptResult =
   | { status: 'ready'; segments: TranscriptSegment[] }
@@ -40,6 +44,32 @@ export interface WindowSentences {
   after?: TranscriptSegment;
 }
 
+/** 一集的逐字稿狀態：已知句子 + 哪些窗口轉過了。 */
+interface EpisodeTranscript {
+  /** Sorted by `start`, deduped. */
+  segments: TranscriptSegment[];
+  /** Window indices already transcribed (RSS 來源 = 全部)。 */
+  windows: Set<number>;
+  /** Window index → 失敗原因（不重試，避免重複扣配額）。 */
+  failedWindows: Map<number, string>;
+  /** True when an RSS transcript covered the whole episode. */
+  complete: boolean;
+}
+
+const cache = new Map<string, EpisodeTranscript>();
+const inFlight = new Map<string, Promise<TranscriptResult>>();
+
+const windowIndexOf = (t: number) => Math.max(0, Math.floor(t / WINDOW_SEC));
+
+function stateFor(episodeId: string): EpisodeTranscript {
+  let s = cache.get(episodeId);
+  if (!s) {
+    s = { segments: [], windows: new Set(), failedWindows: new Map(), complete: false };
+    cache.set(episodeId, s);
+  }
+  return s;
+}
+
 /** Whisper 走 Edge Function，所以「能不能轉錄」＝ Supabase 有沒有設定好。 */
 export function isTranscriptionConfigured(): boolean {
   return supabase !== null;
@@ -50,126 +80,123 @@ export function canTranscribe(episode: Episode): boolean {
   return isTranscriptionConfigured() || Boolean(episode.transcriptUrl);
 }
 
-const memoryCache = new Map<string, TranscriptSegment[]>();
-const inFlight = new Map<string, Promise<TranscriptResult>>();
-/** Session-level failure memo so a >25MB episode isn't re-downloaded per card. */
-const failedThisSession = new Map<string, string>();
-
-function transcriptDir(): string {
-  return `${FileSystem.cacheDirectory}echo-transcripts/`;
+/** 目前已知的句子（永遠依 start 排序）。UI 直接讀這個。 */
+export function getSegments(episodeId: string): TranscriptSegment[] {
+  return cache.get(episodeId)?.segments ?? [];
 }
 
-function transcriptPath(episodeId: string): string {
-  return `${transcriptDir()}${episodeId}.json`;
+/** 這個時間點的逐字稿在手上了嗎？ */
+export function isCovered(episodeId: string, t: number): boolean {
+  const s = cache.get(episodeId);
+  if (!s) return false;
+  return s.complete || s.windows.has(windowIndexOf(t));
+}
+
+/** 該時間點的窗口曾經轉錄失敗過的話，回傳原因（UI 用來顯示為什麼沒有稿）。 */
+export function windowFailure(episodeId: string, t: number): string | undefined {
+  return cache.get(episodeId)?.failedWindows.get(windowIndexOf(t));
+}
+
+/** 已覆蓋範圍的尾端（秒）；沒有任何覆蓋時回 null。 */
+export function coveredUntil(episodeId: string, t: number): number | null {
+  const s = cache.get(episodeId);
+  if (!s) return null;
+  if (s.complete) return Number.POSITIVE_INFINITY;
+  let idx = windowIndexOf(t);
+  if (!s.windows.has(idx)) return null;
+  while (s.windows.has(idx + 1)) idx += 1;
+  return (idx + 1) * WINDOW_SEC;
 }
 
 /**
- * Ensure a transcript exists for the episode.
- * Returns null when neither the Whisper backend nor an RSS transcript is
- * available (UI shows 「逐字稿待轉錄」).
- * Never throws — failures come back as { status: 'failed', reason }.
+ * 確保 `positionSec` 附近的逐字稿存在，並在接近尾端時預抓下一段。
+ *
+ * 呼叫端可以每秒呼叫——重複請求會被 in-flight map 與 window 集合擋掉，
+ * 不會重複扣配額。
  */
-export async function ensureTranscript(
+export async function ensureWindowFor(
   episode: Episode,
+  positionSec: number,
 ): Promise<TranscriptResult | null> {
   if (!canTranscribe(episode)) return null;
 
-  const cached = memoryCache.get(episode.id);
-  if (cached) return { status: 'ready', segments: cached };
+  const s = stateFor(episode.id);
 
-  const sessionFailure = failedThisSession.get(episode.id);
-  if (sessionFailure) return { status: 'failed', reason: sessionFailure };
+  // RSS 逐字稿一次覆蓋整集，先試它——免費而且沒有窗口概念。
+  if (!s.complete && s.segments.length === 0 && episode.transcriptUrl) {
+    const rss = await ensureRssTranscript(episode);
+    if (rss) return rss;
+  }
+  if (s.complete) return { status: 'ready', segments: s.segments };
 
-  const pending = inFlight.get(episode.id);
+  const current = windowIndexOf(positionSec);
+  const target = pickWindow(s, current, positionSec);
+  if (target === null) return { status: 'ready', segments: s.segments };
+
+  const key = `${episode.id}#${target}`;
+  const pending = inFlight.get(key);
   if (pending) return pending;
 
-  const task = transcribe(episode).finally(() => inFlight.delete(episode.id));
-  inFlight.set(episode.id, task);
+  const task = fetchWindow(episode, target).finally(() => inFlight.delete(key));
+  inFlight.set(key, task);
   return task;
 }
 
-async function transcribe(episode: Episode): Promise<TranscriptResult> {
+/**
+ * 下一個該抓的窗口：目前這個還沒有就抓它；有了但快播到尾端就抓下一個。
+ * 都齊了回 null。
+ */
+function pickWindow(
+  s: EpisodeTranscript,
+  current: number,
+  positionSec: number,
+): number | null {
+  if (!s.windows.has(current) && !s.failedWindows.has(current)) return current;
+
+  const edge = (current + 1) * WINDOW_SEC;
+  const next = current + 1;
+  if (
+    edge - positionSec <= PREFETCH_LEAD_SEC &&
+    !s.windows.has(next) &&
+    !s.failedWindows.has(next)
+  ) {
+    return next;
+  }
+  return null;
+}
+
+async function fetchWindow(
+  episode: Episode,
+  windowIdx: number,
+): Promise<TranscriptResult> {
+  const s = stateFor(episode.id);
+  const start = windowIdx * WINDOW_SEC;
+  const end = Math.min(
+    episode.durationSec || start + WINDOW_SEC,
+    start + WINDOW_SEC,
+  );
+
+  if (!supabase) return failWindow(episode.id, windowIdx, '未設定 Supabase，無法轉錄');
+  if (end <= start) {
+    return failWindow(episode.id, windowIdx, '窗口超出單集長度');
+  }
+
   try {
-    // 1. Disk cache hit? (survives app restarts)
-    //    損壞的快取（JSON 壞掉或不是陣列）不能記成永久 fail —— 刪掉壞檔後
-    //    照常 fall through 走 RSS/Whisper 流程。
-    const jsonInfo = await FileSystem.getInfoAsync(transcriptPath(episode.id));
-    if (jsonInfo.exists) {
-      try {
-        const raw = await FileSystem.readAsStringAsync(
-          transcriptPath(episode.id),
-        );
-        const segments = JSON.parse(raw) as TranscriptSegment[];
-        if (!Array.isArray(segments)) {
-          throw new Error('disk cache is not a segments array');
-        }
-        memoryCache.set(episode.id, segments);
-        return { status: 'ready', segments };
-      } catch (cacheErr) {
-        console.warn(
-          `[transcript] ${episode.id}: corrupt disk cache, deleting`,
-          cacheErr,
-        );
-        await FileSystem.deleteAsync(transcriptPath(episode.id), {
-          idempotent: true,
-        }).catch(() => undefined);
-      }
-    }
-
-    await FileSystem.makeDirectoryAsync(transcriptDir(), {
-      intermediates: true,
-    }).catch(() => undefined); // exists already → fine
-
-    // 2. RSS 官方逐字稿（免 key 免成本）。失敗時：有 key → fall through 走
-    //    Whisper；無 key → failed 卡片顯示原因。
-    if (episode.transcriptUrl && episode.transcriptType) {
-      const segs = await fetchRssTranscript(episode);
-      if (segs && segs.length > 0) {
-        await FileSystem.writeAsStringAsync(
-          transcriptPath(episode.id),
-          JSON.stringify(segs),
-        );
-        memoryCache.set(episode.id, segs);
-        setTranscriptMeta({
-          episode_id: episode.id,
-          status: 'done',
-          path: transcriptPath(episode.id),
-          updated_at: new Date().toISOString(),
-        });
-        return { status: 'ready', segments: segs };
-      }
-      if (!isTranscriptionConfigured()) {
-        return fail(
-          episode.id,
-          '官方逐字稿下載/解析失敗，且未設定 Supabase 無法改用 Whisper',
-        );
-      }
-      // 有後端 → fall through 走 Whisper 流程
-    }
-
-    // 3. Whisper 前快篩：enclosure length 超過 25MB 直接放棄，省掉一次來回
-    //    （length 可能缺或亂寫，server 端下載後仍有實際大小檢查）。
-    if (episode.enclosureBytes && episode.enclosureBytes > MAX_UPLOAD_BYTES) {
-      const mb = (episode.enclosureBytes / (1024 * 1024)).toFixed(1);
-      return fail(
-        episode.id,
-        `音檔 ${mb}MB 超過 Whisper 25MB 上限（此集太長暫不支援轉錄）`,
-      );
-    }
-
-    // 4. 交給 Edge Function：只送 audioUrl，mp3 由 server 下載並轉給 Whisper
-    //    （ADR-0008 — provider key 不再進 client bundle）。
-    if (!supabase) return fail(episode.id, '未設定 Supabase，無法轉錄');
-
     const userId = await ensureSession();
-    if (!userId) return fail(episode.id, '尚未建立 session，無法轉錄');
+    if (!userId) return failWindow(episode.id, windowIdx, '尚未建立 session，無法轉錄');
 
     const { data, error } = await supabase.functions.invoke('transcribe', {
-      body: { episodeId: episode.id, audioUrl: episode.audioUrl },
+      body: {
+        episodeId: episode.id,
+        audioUrl: episode.audioUrl,
+        durationSec: episode.durationSec,
+        windowStart: start,
+        windowEnd: end,
+      },
     });
 
     if (error) {
-      return fail(episode.id, `轉錄服務失敗：${error.message}`);
+      return failWindow(episode.id, windowIdx, `轉錄服務失敗：${error.message}`);
     }
 
     const result = data as
@@ -177,32 +204,41 @@ async function transcribe(episode: Episode): Promise<TranscriptResult> {
       | { status: 'failed'; reason: string }
       | null;
 
-    if (!result || result.status !== 'ready') {
-      return fail(episode.id, result?.reason ?? '轉錄服務回傳非預期結果');
+    if (!result || result.status !== 'ready' || !result.segments?.length) {
+      return failWindow(
+        episode.id,
+        windowIdx,
+        result?.status === 'failed' ? result.reason : '轉錄服務回傳非預期結果',
+      );
     }
 
-    const segments: TranscriptSegment[] = result.segments ?? [];
-    if (segments.length === 0) {
-      return fail(episode.id, 'Whisper 回傳空的 segments');
-    }
-
-    // 5. Cache the result.
-    await FileSystem.writeAsStringAsync(
-      transcriptPath(episode.id),
-      JSON.stringify(segments),
-    );
-
-    memoryCache.set(episode.id, segments);
-    setTranscriptMeta({
-      episode_id: episode.id,
-      status: 'done',
-      path: transcriptPath(episode.id),
-      updated_at: new Date().toISOString(),
-    });
-    return { status: 'ready', segments };
+    mergeSegments(s, result.segments);
+    s.windows.add(windowIdx);
+    await persist(episode.id, s);
+    return { status: 'ready', segments: s.segments };
   } catch (err) {
-    return fail(episode.id, `轉錄失敗：${String(err)}`);
+    return failWindow(episode.id, windowIdx, `轉錄失敗：${String(err)}`);
   }
+}
+
+/** 併入新句子並保持依 start 排序、去重（窗口邊界會有重疊句）。 */
+function mergeSegments(s: EpisodeTranscript, incoming: TranscriptSegment[]) {
+  const byStart = new Map<number, TranscriptSegment>();
+  for (const seg of s.segments) byStart.set(Math.round(seg.start * 10), seg);
+  for (const seg of incoming) byStart.set(Math.round(seg.start * 10), seg);
+  s.segments = [...byStart.values()].sort((a, b) => a.start - b.start);
+}
+
+async function ensureRssTranscript(
+  episode: Episode,
+): Promise<TranscriptResult | null> {
+  const segs = await fetchRssTranscript(episode);
+  if (!segs || segs.length === 0) return null;
+  const s = stateFor(episode.id);
+  mergeSegments(s, segs);
+  s.complete = true; // 整集都有了，之後不再呼叫 Whisper
+  await persist(episode.id, s);
+  return { status: 'ready', segments: s.segments };
 }
 
 /** 下載 + 解析 podcast:transcript。任何失敗回 null（console.warn），不 throw。 */
@@ -228,9 +264,14 @@ async function fetchRssTranscript(
   }
 }
 
-function fail(episodeId: string, reason: string): TranscriptResult {
-  console.warn(`[transcript] ${episodeId}: ${reason}`);
-  failedThisSession.set(episodeId, reason);
+function failWindow(
+  episodeId: string,
+  windowIdx: number,
+  reason: string,
+): TranscriptResult {
+  console.warn(`[transcript] ${episodeId} w${windowIdx}: ${reason}`);
+  // 記在該窗口上，不是整集 —— 一個窗口失敗不該讓其他窗口也放棄。
+  stateFor(episodeId).failedWindows.set(windowIdx, reason);
   setTranscriptMeta({
     episode_id: episodeId,
     status: 'failed',
@@ -240,18 +281,111 @@ function fail(episodeId: string, reason: string): TranscriptResult {
   return { status: 'failed', reason };
 }
 
+// ---------------------------------------------------------------------------
+// Disk cache（跨重啟）。存 segments + 已覆蓋窗口，讓下次開啟不用重付錢。
+// ---------------------------------------------------------------------------
+
+interface DiskShape {
+  segments: TranscriptSegment[];
+  windows: number[];
+  complete: boolean;
+}
+
+function transcriptDir(): string {
+  return `${FileSystem.cacheDirectory}echo-transcripts/`;
+}
+
+function transcriptPath(episodeId: string): string {
+  return `${transcriptDir()}${episodeId}.json`;
+}
+
+async function persist(episodeId: string, s: EpisodeTranscript): Promise<void> {
+  try {
+    await FileSystem.makeDirectoryAsync(transcriptDir(), {
+      intermediates: true,
+    }).catch(() => undefined);
+    const payload: DiskShape = {
+      segments: s.segments,
+      windows: [...s.windows],
+      complete: s.complete,
+    };
+    await FileSystem.writeAsStringAsync(
+      transcriptPath(episodeId),
+      JSON.stringify(payload),
+    );
+    setTranscriptMeta({
+      episode_id: episodeId,
+      status: 'done',
+      path: transcriptPath(episodeId),
+      updated_at: new Date().toISOString(),
+    });
+  } catch (err) {
+    // 快取寫入失敗不該讓已經拿到的逐字稿消失——只是下次要重轉。
+    console.warn(`[transcript] ${episodeId}: cache write failed`, err);
+  }
+}
+
+/** Re-hydrate from disk（app 啟動 / 換集時呼叫）。 */
+export async function preloadTranscript(episodeId: string): Promise<boolean> {
+  if (cache.has(episodeId)) return true;
+  try {
+    const path = transcriptPath(episodeId);
+    const info = await FileSystem.getInfoAsync(path);
+    if (!info.exists) return false;
+    const parsed: unknown = JSON.parse(await FileSystem.readAsStringAsync(path));
+
+    // 舊版格式是一個純 segments 陣列；當成「有句子但沒有窗口資訊」讀進來，
+    // 讓它照樣顯示，缺的窗口之後補轉即可。
+    if (Array.isArray(parsed)) {
+      cache.set(episodeId, {
+        segments: parsed as TranscriptSegment[],
+        windows: new Set(),
+        failedWindows: new Map(),
+        complete: false,
+      });
+      return true;
+    }
+
+    const d = parsed as DiskShape;
+    if (!d || !Array.isArray(d.segments)) {
+      await FileSystem.deleteAsync(path, { idempotent: true }).catch(() => {});
+      return false;
+    }
+    cache.set(episodeId, {
+      segments: d.segments,
+      windows: new Set(d.windows ?? []),
+      failedWindows: new Map(),
+      complete: Boolean(d.complete),
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * 練習頁用：確保某個 capture 窗口的逐字稿存在（不管播放位置在哪）。
+ * 保留舊名字，因為 Practice.tsx 依賴它。
+ */
+export async function ensureTranscript(
+  episode: Episode,
+  aroundSec?: number,
+): Promise<TranscriptResult | null> {
+  return ensureWindowFor(episode, aroundSec ?? 0);
+}
+
 /**
  * Segments overlapping [start, end], plus one segment of context on each
  * side (signal-design.md §4: 永遠多存前後各 1 句). Returns null when the
- * episode has no transcript loaded yet — call ensureTranscript first.
+ * episode has no transcript loaded yet — call ensureWindowFor first.
  */
 export function sentencesInWindow(
   episodeId: string,
   start: number,
   end: number,
 ): WindowSentences | null {
-  const segments = memoryCache.get(episodeId);
-  if (!segments || segments.length === 0) return null;
+  const segments = getSegments(episodeId);
+  if (segments.length === 0) return null;
 
   const first = segments.findIndex((s) => s.end > start && s.start < end);
   if (first < 0) return { inWindow: [] };
@@ -268,27 +402,4 @@ export function sentencesInWindow(
     inWindow: segments.slice(first, last + 1),
     after: last + 1 < segments.length ? segments[last + 1] : undefined,
   };
-}
-
-/** Re-hydrate the memory cache from a disk transcript (used on app start). */
-export async function preloadTranscript(episodeId: string): Promise<boolean> {
-  if (memoryCache.has(episodeId)) return true;
-  const meta = getTranscriptMeta(episodeId);
-  if (meta?.status !== 'done' || !meta.path) return false;
-  try {
-    const info = await FileSystem.getInfoAsync(meta.path);
-    if (!info.exists) return false;
-    const raw = await FileSystem.readAsStringAsync(meta.path);
-    const parsed: unknown = JSON.parse(raw);
-    if (!Array.isArray(parsed)) {
-      // Corrupt-but-valid-JSON cache: drop it so the normal RSS/Whisper
-      // flow rebuilds it (mirrors the guard in transcribe(), m12).
-      await FileSystem.deleteAsync(meta.path, { idempotent: true }).catch(() => {});
-      return false;
-    }
-    memoryCache.set(episodeId, parsed as TranscriptSegment[]);
-    return true;
-  } catch {
-    return false;
-  }
 }

@@ -52,7 +52,7 @@ export async function resolveCaller(req: Request): Promise<Caller | null> {
  */
 export async function consumeQuota(
   userId: string,
-  kind: 'diagnose' | 'transcribe',
+  kind: 'diagnose' | 'transcribe' | 'annotate',
   limit: number,
 ): Promise<{ ok: boolean; used: number }> {
   const admin = createClient(
