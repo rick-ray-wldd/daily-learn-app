@@ -14,6 +14,7 @@
  *                                          intersection is <3s（幾乎鎖不到
  *                                          完整句）改保留 union，仍升級。
  *  - Rewind then slower playback ≤10s    → strength 'strong'.
+ *  - Rewind then open the transcript ≤10s → strength 'strong'.
  *  - Single rewind                       → strength 'weak' (may be a
  *                                          distraction; the practice screen's
  *                                          confirm step filters it, §3).
@@ -33,8 +34,11 @@ const WINDOW_SECONDS = 15;
 const CONTEXT_PAD_SECONDS = 6;
 /** A rewind this soon after the previous one, to an earlier point, is "seeking". */
 const SECTION_SEEK_WINDOW_MS = 3_000;
-/** Slowing down within this window after a rewind upgrades the capture. */
-const SLOWDOWN_UPGRADE_WINDOW_MS = 10_000;
+/**
+ * 重聽之後多久之內的「補救動作」還算同一個訊號。降速與打開逐字稿共用這個窗口：
+ * 兩者是 §2 裡同一條規則的兩種表現，拆成兩個常數只會讓它有兩個真相。
+ */
+const UPGRADE_WINDOW_MS = 10_000;
 /** 交集窄於此值時鎖不到完整句子 → 改保留 union（仍升級 strong）。 */
 const MIN_INTERSECTION_SECONDS = 3;
 
@@ -207,8 +211,25 @@ export function noteRateChange(
   prevRate: number,
 ): void {
   if (newRate >= prevRate) return; // only slow-downs are a signal
+  upgradeLastRewind(episodeId);
+}
+
+/**
+ * Notify the engine that the learner opened the transcript. Doing that within
+ * 10s of a rewind is §2 的第三個 strong 條件：他不只重聽，還跑去看字——「我剛剛
+ * 真的沒聽懂」幾乎沒有別的解釋。
+ *
+ * 呼叫端必須確保這對應**一次真實的展開動作**（不是 re-render、不是自動展開），
+ * 否則這個訊號會被我們自己灌水成噪音。
+ */
+export function noteTranscriptOpen(episodeId: string): void {
+  upgradeLastRewind(episodeId);
+}
+
+/** 兩個升級入口共用的判定：最近一次 rewind 還在窗口內就升級它產生的 capture。 */
+function upgradeLastRewind(episodeId: string): void {
   if (!lastRewind || lastRewind.episodeId !== episodeId) return;
-  if (Date.now() - lastRewind.atMs > SLOWDOWN_UPGRADE_WINDOW_MS) return;
+  if (Date.now() - lastRewind.atMs > UPGRADE_WINDOW_MS) return;
   updateCapture(lastRewind.captureId, { strength: 'strong' });
 }
 
