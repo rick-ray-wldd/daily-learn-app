@@ -22,6 +22,7 @@ import * as Notifications from 'expo-notifications';
 import PodcastBrowser from './components/PodcastBrowser';
 import TermSheet from './components/TermSheet';
 import TranscriptPanel from './components/TranscriptPanel';
+import UpdateStatus from './components/UpdateStatus';
 import { Term } from './lib/annotate';
 import { DEMO_EPISODES, Episode } from './lib/episodes';
 import { ensureSession, isSupabaseConfigured } from './lib/supabase';
@@ -464,6 +465,9 @@ export default function App() {
           </Text>
         </View>
       </View>
+
+      {/* 現在跑的是哪一顆 bundle。OTA 送達與否在畫面上看不出來，只能把它印出來。 */}
+      <UpdateStatus />
 
       {/* Tabs：播放器｜今日練習（state 切換，不用 navigation） */}
       <View style={styles.segment}>
