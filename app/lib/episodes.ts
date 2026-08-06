@@ -30,6 +30,24 @@ export interface Episode {
 }
 
 export const DEMO_EPISODES: Episode[] = [
+  // 放第一個：它是唯一有現成逐字稿的示範集，開 app 就看得到跟播效果，
+  // 不用等 Whisper 轉完（另外兩集沒有 transcriptUrl，走轉錄路徑）。
+  //
+  // 音檔與 vtt 都放在 Supabase Storage 的 demo-media，兩者同源（YouTube 版），
+  // 所以時間軸完全對齊。RSS enclosure 版本有動態插入的廣告，時間會偏，不能混用。
+  // ⚠️ 這是 prototype 的示範素材，不是產品內容管線 —— 見 scripts/vtt_to_sentences.py。
+  {
+    id: '33333333-3333-4333-8333-333333333333',
+    podcast: 'Huberman Lab Essentials',
+    title: 'Understand & Improve Memory Using Science-Based Tools',
+    audioUrl:
+      'https://lkywohepzbubiijxktai.supabase.co/storage/v1/object/public/demo-media/huberman-memory/audio.mp3',
+    durationSec: 2149,
+    transcriptUrl:
+      'https://lkywohepzbubiijxktai.supabase.co/storage/v1/object/public/demo-media/huberman-memory/sentences.vtt',
+    transcriptType: 'vtt',
+    artworkUrl: 'https://i.ytimg.com/vi/U6dnOVth7-I/maxresdefault.jpg',
+  },
   {
     id: '11111111-1111-4111-8111-111111111111',
     podcast: 'Planet Money (NPR)',

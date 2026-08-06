@@ -20,3 +20,4 @@ covering the area they touch. Copy `0000-template.md` for new ones.
 | [0011](0011-honest-bounded-session.md) | Daily session "honest but bounded": N=5 strong cap, overflow carries over | accepted |
 | [0012](0012-single-learning-focus.md) | One learning focus per capture; multi-candidate diagnosis deferred | accepted |
 | [0013](0013-anonymous-auth-and-rls.md) | Anonymous auth is the identity floor; RLS scopes every row to its owner | accepted |
+| [0014](0014-manufactured-demo-transcripts.md) | 示範單集用自製對齊素材；與產品內容管線分開 | accepted |

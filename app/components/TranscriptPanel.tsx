@@ -51,6 +51,16 @@ const FOLLOW_RESUME_MS = 6000;
 const FOLLOW_VIEW_POSITION = 0.33;
 /** scrollToIndex 失敗後、等 FlatList 量完那批列再重試的間隔。 */
 const SCROLL_RETRY_MS = 240;
+/**
+ * 只標註聽到的位置附近（往回 1 分鐘、往前 5 分鐘）。
+ *
+ * 窗口化轉錄時這件事是自然成立的——一次只多 10 分鐘的句子。但有現成逐字稿的單集
+ * 是**整集一次到齊**（295 句），全丟給 ensureAnnotations 會立刻排出約 8 個批次，
+ * 而配額是 40 次/天且標註不寫磁碟：開五次 app 就用完，之後靜靜地不再標註。
+ * 何況使用者在第 2 分鐘時，第 30 分鐘的難詞標了也沒人看。
+ */
+const ANNOTATE_BEHIND_SEC = 60;
+const ANNOTATE_AHEAD_SEC = 300;
 
 interface TranscriptPanelProps {
   episode: Episode;
@@ -313,7 +323,14 @@ export default function TranscriptPanel({
           // out，所以每 3 秒呼叫一次不會造成多餘 render。
           const next = getSegments(episode.id);
           setSegments(next);
-          if (next.length > 0) ensureAnnotations(episode.id, next);
+          // 渲染用全部，標註只送附近——理由見 ANNOTATE_AHEAD_SEC。
+          const here = positionRef.current;
+          const nearby = next.filter(
+            (s) =>
+              s.end >= here - ANNOTATE_BEHIND_SEC &&
+              s.start <= here + ANNOTATE_AHEAD_SEC,
+          );
+          if (nearby.length > 0) ensureAnnotations(episode.id, nearby);
           if (res?.status === 'failed') forceRender((v) => v + 1);
         })
         .catch(() => {
