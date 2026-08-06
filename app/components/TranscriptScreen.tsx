@@ -1,28 +1,32 @@
 /**
- * TranscriptPanel — 跟讀逐字稿（播放器下半部）。
+ * 全螢幕逐字稿閱讀器（Apple Podcasts 的 transcript 視圖）。
  *
- * ⚠️ 為什麼預設是摺疊的：這是**產品約束**，不是視覺偏好。
- * CONTEXT.md 對 **signal strength** 的定義裡，「rewind 之後打開逐字稿」是三個
- * 把一則 **capture** 升級成 strong 的條件之一。逐字稿若永遠攤開，「打開」就不
- * 再是一個事件，那個訊號會被我們自己銷毀。所以 `onToggleExpand(true)` 必須對
- * 應一次真實的使用者動作：只在使用者按下去時呼叫一次，
- * **絕不從 effect 呼叫、絕不在 re-render 時呼叫**。
+ * 為什麼是**全螢幕**而不是播放器下面的一塊面板：面板版排在所有播放控制之後，在
+ * iPhone 上只分得到約三成高度，一次看得到五、六行。跟播捲動在那種視窗裡看起來
+ * 不像「跟著唸」，而像「清單在抖」。逐字稿是這個 app 的閱讀模式，它需要整個畫面。
  *
- * 第二條約束：自動捲動必須讓位給使用者（見 FOLLOW_RESUME_MS）。讀到一半被清
- * 單拉走，比沒有逐字稿更糟。
+ * 「現在唸到哪一句」靠三件事同時表達，缺一都不夠明顯：
+ *   1. 字級（21 vs 18）    —— 掃視時第一眼就會落在最大的那行
+ *   2. 亮度（text vs dim） —— 其餘句子退成背景
+ *   3. 左側的藍色標記      —— 位置的絕對指標，就算兩行字級接近也認得出來
+ * 藍色是 theme.ts 定義的「中性 chrome＝進度」，用在這裡語意正確：它表達的是
+ * 播放位置，不是「你動手了」（綠）也不是「app 在猜」（琥珀）。
  *
- * 第三條：摺疊時**不驅動轉錄**。學習者沒在讀，而每個新窗口都要付 Whisper 的錢。
+ * 播放控制留在底部，所以看逐字稿時不必退回播放器就能 ↺15、暫停、拖進度。
  */
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   FlatList,
   GestureResponderEvent,
+  LayoutChangeEvent,
+  PanResponder,
   Pressable,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
 
+import { Chevron, PauseIcon, PlayIcon, SkipIcon } from './Glyph';
 import {
   ensureAnnotations,
   getTerms,
@@ -33,7 +37,6 @@ import {
 } from '../lib/annotate';
 import { Episode } from '../lib/episodes';
 import { isSupabaseConfigured } from '../lib/supabase';
-import { C, R, SP, TYPE } from '../lib/theme';
 import {
   ensureWindowFor,
   getSegments,
@@ -41,14 +44,15 @@ import {
   preloadTranscript,
   windowFailure,
 } from '../lib/transcript';
+import { C, R, SP, TYPE } from '../lib/theme';
 import { TranscriptSegment } from '../lib/types';
 
 /** 展開時驅動轉錄的節流間隔。ensureWindowFor 自己會去重，這裡只是不要每 250ms 敲一次。 */
 const ENSURE_INTERVAL_MS = 3000;
 /** 使用者停手多久才恢復自動跟隨。 */
 const FOLLOW_RESUME_MS = 6000;
-/** 目前這句停在畫面上方約 1/3：上面留剛講完的當上下文，下面留最多待讀空間。 */
-const FOLLOW_VIEW_POSITION = 0.33;
+/** 目前這句停在畫面上方約 4 成：上面留剛講完的當上下文，下面留最多待讀空間。 */
+const FOLLOW_VIEW_POSITION = 0.4;
 /** scrollToIndex 失敗後、等 FlatList 量完那批列再重試的間隔。 */
 const SCROLL_RETRY_MS = 240;
 /**
@@ -62,13 +66,20 @@ const SCROLL_RETRY_MS = 240;
 const ANNOTATE_BEHIND_SEC = 60;
 const ANNOTATE_AHEAD_SEC = 300;
 
-interface TranscriptPanelProps {
+const BACK_SECONDS = 15;
+const FORWARD_SECONDS = 30;
+
+interface Props {
   episode: Episode;
   positionSec: number;
-  expanded: boolean;
-  onToggleExpand: (next: boolean) => void;
+  durationSec: number;
+  playing: boolean;
+  onClose: () => void;
   onSeek: (toSec: number, isRewind: boolean) => void;
   onOpenTerm: (term: Term) => void;
+  onTogglePlay: () => void;
+  onBack15: () => void;
+  onForward30: () => void;
 }
 
 type RowState = 'current' | 'past' | 'future';
@@ -80,7 +91,7 @@ interface Part {
 }
 
 // ---------------------------------------------------------------------------
-// 純函式（不碰 state，方便將來抽出去測）
+// 純函式
 // ---------------------------------------------------------------------------
 
 /**
@@ -106,9 +117,7 @@ function indexAt(segments: TranscriptSegment[], t: number): number {
   return found;
 }
 
-/**
- * 詞邊界判斷。數字也算 word char，免得 "AI" 之類的 term 咬進 "AI2" 中間。
- */
+/** 數字也算 word char，免得 "AI" 之類的 term 咬進 "AI2" 中間。 */
 const isWordChar = (ch: string | undefined) =>
   ch !== undefined && /[A-Za-z0-9]/.test(ch);
 
@@ -130,7 +139,7 @@ function findWholeWord(text: string, needle: string): number {
   }
 }
 
-/** 依 term 出現位置把一句話切成片段；這句沒有任何命中就回 null（省掉巢狀 Text）。 */
+/** 依 term 出現位置把一句話切成片段；沒有任何命中回 null（省掉巢狀 Text）。 */
 function splitByTerms(text: string, terms: Term[]): Part[] | null {
   const hits: { start: number; end: number; term: Term }[] = [];
   for (const term of terms) {
@@ -153,14 +162,12 @@ function splitByTerms(text: string, terms: Term[]): Part[] | null {
 }
 
 /**
- * 整集的切詞結果，key = rowKey(segment)。
+ * 整集的切詞結果，key = rowKey(segment)。只在 segments 或標註變動時重建一次，
+ * 之後每個 row 直接拿現成的陣列——切詞若放在 renderItem 裡，捲動時每一格都要
+ * 重跑一次字串搜尋。
  *
- * 只在 segments 或標註變動時重建一次，之後每個 row 直接拿現成的陣列——切詞
- * 若放在 renderItem 裡，捲動時每一格都要重跑一次字串搜尋。
- *
- * 查表用 `segmentKey` 而不是 `segment.id`：上面說的撞號會讓第一個窗口的 term
- * 掛到第二個窗口的句子上（splitByTerms 只擋得掉文字對不上的那些，剛好用字
- * 相同的仍會畫出一個解釋錯句子的高亮）。
+ * 查表用 `segmentKey` 而不是 `segment.id`：撞號會讓第一個窗口的 term 掛到第二個
+ * 窗口的句子上（splitByTerms 只擋得掉文字對不上的，剛好用字相同的仍會畫錯）。
  */
 function buildHighlightIndex(
   segments: TranscriptSegment[],
@@ -175,6 +182,12 @@ function buildHighlightIndex(
     if (parts) out.set(rowKey(seg), parts);
   }
   return out;
+}
+
+function formatTime(totalSeconds: number): string {
+  if (!Number.isFinite(totalSeconds) || totalSeconds < 0) return '0:00';
+  const s = Math.floor(totalSeconds);
+  return `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, '0')}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -197,11 +210,6 @@ const SegmentRow = memo(function SegmentRow({
   onOpenTerm,
 }: RowProps) {
   const current = state === 'current';
-  const textStyle = current
-    ? styles.lineCurrent
-    : state === 'past'
-      ? styles.linePast
-      : styles.lineFuture;
 
   const pressTerm = (e: GestureResponderEvent, term: Term) => {
     // 點 term 到此為止——否則同一下也會被外層 Pressable 當成「跳到這句」，
@@ -213,9 +221,15 @@ const SegmentRow = memo(function SegmentRow({
   return (
     <Pressable
       onPress={() => onSelect(segment)}
-      style={[styles.row, current && styles.rowCurrent]}
+      style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
     >
-      <Text style={textStyle}>
+      {/* 位置標記：只有當前句畫得出來，其餘句子留同寬的空位，免得整段文字左右跳。 */}
+      <View style={[styles.marker, current && styles.markerOn]} />
+      <Text
+        style={
+          current ? styles.lineCurrent : state === 'past' ? styles.linePast : styles.lineFuture
+        }
+      >
         {parts
           ? parts.map((p, i) =>
               p.term ? (
@@ -238,27 +252,28 @@ const SegmentRow = memo(function SegmentRow({
 });
 
 // ---------------------------------------------------------------------------
-// Panel
+// Screen
 // ---------------------------------------------------------------------------
 
-export default function TranscriptPanel({
+export default function TranscriptScreen({
   episode,
   positionSec,
-  expanded,
-  onToggleExpand,
+  durationSec,
+  playing,
+  onClose,
   onSeek,
   onOpenTerm,
-}: TranscriptPanelProps) {
+  onTogglePlay,
+  onBack15,
+  onForward30,
+}: Props) {
   const [segments, setSegments] = useState<TranscriptSegment[]>(() =>
     getSegments(episode.id),
   );
   const [annotationRev, setAnnotationRev] = useState(0);
   const [following, setFollowing] = useState(true);
-  /**
-   * 已經讀過磁碟快取的那一集。存 id 而不是 boolean，是為了不依賴 effect 之間的
-   * 執行順序：換集那一個 render 裡它還是舊集的 id，轉錄 effect 自然就跳過了。
-   */
   const [hydratedId, setHydratedId] = useState<string | null>(null);
+  const [scrubSec, setScrubSec] = useState<number | null>(null);
   // 暫停時沒有 positionSec 的更新來觸發重繪，轉錄失敗訊息得自己敲一下。
   const [, forceRender] = useState(0);
 
@@ -283,7 +298,7 @@ export default function TranscriptPanel({
   // 順序是有成本的：`preloadTranscript` 在 transcript.ts 的 cache 已經有這一集
   // 時會直接跳過，而 `ensureWindowFor` 一被呼叫就會建出那筆（空的）記錄。所以
   // 若讓轉錄 effect 先跑，上一次已經存進磁碟的窗口會被當成沒轉錄過，每次冷啟動
-  // 都要重付一次 Whisper 的錢（一個窗口約 $0.06）——快取等於白做。
+  // 都要重付一次 Whisper 的錢——快取等於白做。
   useEffect(() => {
     let alive = true;
     setSegments(getSegments(episode.id));
@@ -309,26 +324,24 @@ export default function TranscriptPanel({
     [],
   );
 
-  // --- 驅動轉錄（只在展開、且磁碟快取讀完之後）-----------------------------
+  // --- 驅動轉錄（這個畫面掛著就等於使用者在看）-----------------------------
   useEffect(() => {
-    if (!expanded || hydratedId !== episode.id) return;
+    if (hydratedId !== episode.id) return;
     let alive = true;
 
     const run = () => {
       void ensureWindowFor(episode, positionRef.current)
         .then((res) => {
           if (!alive) return;
-          // 新句子可能來自這次轉錄，也可能來自磁碟快取／RSS 全集稿——一律以
-          // transcript.ts 目前手上的為準。同一個陣列參考時 React 會自行 bail
-          // out，所以每 3 秒呼叫一次不會造成多餘 render。
+          // 新句子可能來自這次轉錄，也可能來自磁碟快取／現成全集稿——一律以
+          // transcript.ts 目前手上的為準。同一個陣列參考時 React 會自行 bail out。
           const next = getSegments(episode.id);
           setSegments(next);
           // 渲染用全部，標註只送附近——理由見 ANNOTATE_AHEAD_SEC。
           const here = positionRef.current;
           const nearby = next.filter(
             (s) =>
-              s.end >= here - ANNOTATE_BEHIND_SEC &&
-              s.start <= here + ANNOTATE_AHEAD_SEC,
+              s.end >= here - ANNOTATE_BEHIND_SEC && s.start <= here + ANNOTATE_AHEAD_SEC,
           );
           if (nearby.length > 0) ensureAnnotations(episode.id, nearby);
           if (res?.status === 'failed') forceRender((v) => v + 1);
@@ -338,13 +351,13 @@ export default function TranscriptPanel({
         });
     };
 
-    run(); // 展開的當下就要一次，別讓使用者盯著空白等 3 秒
+    run(); // 打開的當下就要一次，別讓使用者盯著空白等 3 秒
     const id = setInterval(run, ENSURE_INTERVAL_MS);
     return () => {
       alive = false;
       clearInterval(id);
     };
-  }, [expanded, episode, hydratedId]);
+  }, [episode, hydratedId]);
 
   // --- 位置 → 目前這句 -----------------------------------------------------
   const nearestIndex = useMemo(
@@ -353,9 +366,7 @@ export default function TranscriptPanel({
   );
   // 嚴格落在 [start, end) 才算 current；句與句之間的停頓不該讓整列變亮。
   const activeIndex =
-    nearestIndex >= 0 && positionSec < segments[nearestIndex].end
-      ? nearestIndex
-      : -1;
+    nearestIndex >= 0 && positionSec < segments[nearestIndex].end ? nearestIndex : -1;
 
   const partsIndex = useMemo(
     () => buildHighlightIndex(segments, getTerms(episode.id)),
@@ -374,20 +385,21 @@ export default function TranscriptPanel({
   }, []);
 
   useEffect(() => {
-    if (!expanded || !following) return;
+    if (!following) return;
     if (nearestIndex < 0 || nearestIndex >= segments.length) return;
     // 只有換行才捲：positionSec 每 250ms 就變，每次都捲會一直打斷動畫。
     if (nearestIndex === lastScrolledRef.current) return;
     lastScrolledRef.current = nearestIndex;
     scrollToRow(nearestIndex);
-  }, [expanded, following, nearestIndex, segments.length, scrollToRow]);
+  }, [following, nearestIndex, segments.length, scrollToRow]);
 
   const armResume = useCallback(() => {
     if (resumeTimer.current) clearTimeout(resumeTimer.current);
     resumeTimer.current = setTimeout(() => setFollowing(true), FOLLOW_RESUME_MS);
   }, []);
 
-  // 手一碰就停止跟隨，而且不倒數——倒數要從「放開」那一刻才開始算。
+  // 只有「真的在捲」才停止跟隨。以前綁在 onTouchStart 上，結果點一句跳轉也算
+  // 動手，跟播會無謂地停 6 秒。
   const onUserGrab = useCallback(() => {
     if (resumeTimer.current) clearTimeout(resumeTimer.current);
     setFollowing(false);
@@ -418,70 +430,115 @@ export default function TranscriptPanel({
     // 1 秒寬容度讓「點目前這句」不會被誤記成重聽。positionRef 最多落後一個
     // render（250ms），而這個誤差只會讓我們少記、不會多記——訊號寧可漏不可假。
     seekRef.current(segment.start, segment.start < positionRef.current - 1);
-  }, []);
+    // 點完立刻恢復跟隨：使用者剛剛指定了要聽哪裡，畫面應該跟過去。
+    resumeFollow();
+  }, [resumeFollow]);
 
   const handleOpenTerm = useCallback((term: Term) => {
     openTermRef.current(term);
   }, []);
 
+  // --- 底部進度條（與播放器同一套拖曳語意）---------------------------------
+  const barWidthRef = useRef(0);
+  const durationRef = useRef(durationSec);
+  const scrubStartRef = useRef(0);
+  const commitScrubRef = useRef<(sec: number) => void>(() => {});
+
+  const secAtX = (x: number) => {
+    const w = barWidthRef.current;
+    const d = durationRef.current;
+    if (w <= 0 || d <= 0) return 0;
+    return Math.max(0, Math.min(1, x / w)) * d;
+  };
+
+  const commitScrub = (target: number) => {
+    setScrubSec(null);
+    if (barWidthRef.current <= 0 || durationSec <= 0) return;
+    // 往回拖與按 ↺15 是同一個領域事件，交給同一個 onSeek（ADR-0003）。
+    onSeek(target, target < positionSec - 1);
+  };
+
+  useEffect(() => {
+    durationRef.current = durationSec;
+    commitScrubRef.current = commitScrub;
+  });
+
+  const scrubResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => true,
+        onMoveShouldSetPanResponder: () => true,
+        onPanResponderTerminationRequest: () => false,
+        onPanResponderGrant: (e) => {
+          scrubStartRef.current = e.nativeEvent.locationX;
+          setScrubSec(secAtX(scrubStartRef.current));
+        },
+        onPanResponderMove: (_e, gesture) => {
+          setScrubSec(secAtX(scrubStartRef.current + gesture.dx));
+        },
+        onPanResponderRelease: (_e, gesture) => {
+          commitScrubRef.current(secAtX(scrubStartRef.current + gesture.dx));
+        },
+        onPanResponderTerminate: () => setScrubSec(null),
+      }),
+    // 只讀 ref，不需要（也不可以）重建。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
+
+  const onBarLayout = (e: LayoutChangeEvent) => {
+    barWidthRef.current = e.nativeEvent.layout.width;
+  };
+
+  const displaySec = scrubSec ?? positionSec;
+  const progress = durationSec > 0 ? Math.min(displaySec / durationSec, 1) : 0;
+
   // --- 狀態訊息 ------------------------------------------------------------
-  // RSS 官方逐字稿免費且不需要後端，所以「有沒有得抓」不等於「有沒有 Supabase」。
+  // 現成逐字稿免費且不需要後端，所以「有沒有得抓」不等於「有沒有 Supabase」。
   const canFetch = isSupabaseConfigured || Boolean(episode.transcriptUrl);
   const covered = isCovered(episode.id, positionSec);
   const failure = windowFailure(episode.id, positionSec);
-  // 展開時只要「沒覆蓋、沒失敗、抓得到」，transcript.ts 就一定有一個窗口在飛
-  // （pickWindow 的定義），所以「轉錄中…」不需要另外追一個 in-flight 旗標。
   const status: string | null = covered
     ? null
     : failure // 伺服器已經寫成使用者看得懂的中文，原文照登
       ? failure
       : !canFetch
         ? '本地模式，逐字稿需要連線'
-        : expanded
-          ? '轉錄中…'
-          : null;
-
-  // --- 摺疊：只露出正在講的那一句 ------------------------------------------
-  if (!expanded) {
-    const peek =
-      activeIndex >= 0
-        ? segments[activeIndex].text
-        : (status ?? '點開看逐字稿');
-    return (
-      <Pressable
-        onPress={() => onToggleExpand(true)}
-        style={({ pressed }) => [styles.peek, pressed && styles.pressed]}
-      >
-        <Text
-          style={activeIndex >= 0 ? styles.peekText : styles.peekHint}
-          numberOfLines={1}
-        >
-          {peek}
-        </Text>
-        <Text style={styles.chevron}>⌃</Text>
-      </Pressable>
-    );
-  }
-
-  // --- 展開 ----------------------------------------------------------------
-  const showStatusRow = status !== null && segments.length > 0;
+        : '轉錄中…';
 
   return (
-    <View style={styles.panel}>
-      <Pressable onPress={() => onToggleExpand(false)} style={styles.header} hitSlop={6}>
-        <Text style={styles.headerTitle}>逐字稿</Text>
-        {!isAnnotationConfigured() && (
-          <Text style={styles.headerNote}>難點標註需要連線</Text>
-        )}
-        <Text style={styles.chevron}>⌄</Text>
-      </Pressable>
+    <View style={styles.root}>
+      {/* Header */}
+      <View style={styles.header}>
+        <Pressable
+          onPress={onClose}
+          hitSlop={12}
+          style={({ pressed }) => [styles.closeBtn, pressed && styles.pressed]}
+          accessibilityRole="button"
+          accessibilityLabel="關閉逐字稿"
+        >
+          <Chevron direction="down" size={12} color={C.text} weight={2.5} />
+        </Pressable>
+        <View style={styles.headerText}>
+          <Text style={styles.headerTitle}>逐字稿</Text>
+          <Text style={styles.headerSub} numberOfLines={1}>
+            {episode.title}
+          </Text>
+        </View>
+      </View>
 
-      {showStatusRow && (
+      {status !== null && (
         <View style={styles.statusRow}>
           <Text style={styles.statusText}>{status}</Text>
         </View>
       )}
+      {!isAnnotationConfigured() && (
+        <View style={styles.statusRow}>
+          <Text style={styles.statusText}>難點標註需要連線</Text>
+        </View>
+      )}
 
+      {/* 逐字稿本體 */}
       <View style={styles.listWrap}>
         <FlatList
           ref={listRef}
@@ -489,14 +546,13 @@ export default function TranscriptPanel({
           keyExtractor={rowKey}
           extraData={activeIndex}
           onScrollToIndexFailed={onScrollToIndexFailed}
-          onTouchStart={onUserGrab}
           onScrollBeginDrag={onUserGrab}
           onScrollEndDrag={armResume}
           onMomentumScrollEnd={armResume}
-          onTouchEnd={armResume}
-          initialNumToRender={12}
+          initialNumToRender={14}
           maxToRenderPerBatch={16}
-          windowSize={9}
+          windowSize={11}
+          showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.listContent}
           ListEmptyComponent={
             <Text style={styles.emptyText}>{status ?? '這一段還沒有逐字稿'}</Text>
@@ -506,11 +562,7 @@ export default function TranscriptPanel({
               segment={item}
               parts={partsIndex.get(rowKey(item))}
               state={
-                index === activeIndex
-                  ? 'current'
-                  : index <= nearestIndex
-                    ? 'past'
-                    : 'future'
+                index === activeIndex ? 'current' : index <= nearestIndex ? 'past' : 'future'
               }
               onSelect={handleSelect}
               onOpenTerm={handleOpenTerm}
@@ -521,101 +573,200 @@ export default function TranscriptPanel({
         {!following && segments.length > 0 && (
           <Pressable
             onPress={resumeFollow}
-            style={({ pressed }) => [styles.pill, pressed && styles.pressed]}
+            style={({ pressed }) => [styles.followPill, pressed && styles.pressed]}
           >
-            <Text style={styles.pillText}>回到目前位置</Text>
+            <Text style={styles.followPillText}>回到目前位置</Text>
           </Pressable>
         )}
+      </View>
+
+      {/* 底部播放控制：看逐字稿時不必退回播放器 */}
+      <View style={styles.transport}>
+        <View style={styles.barTouch} onLayout={onBarLayout} {...scrubResponder.panHandlers}>
+          <View style={styles.barTrack}>
+            <View style={[styles.barFill, { width: `${progress * 100}%` }]} />
+          </View>
+          <View
+            pointerEvents="none"
+            style={[
+              styles.thumb,
+              scrubSec !== null && styles.thumbActive,
+              { left: `${progress * 100}%` },
+            ]}
+          />
+        </View>
+        <View style={styles.timeRow}>
+          <Text style={styles.timeText}>{formatTime(displaySec)}</Text>
+          <Text style={styles.timeText}>
+            -{formatTime(Math.max(0, durationSec - displaySec))}
+          </Text>
+        </View>
+
+        <View style={styles.controls}>
+          {/* ↺15 是產品的核心手勢：唯一有顏色的鍵，永遠最大。 */}
+          <Pressable
+            onPress={onBack15}
+            style={({ pressed }) => [styles.backBtn, pressed && styles.pressed]}
+            accessibilityRole="button"
+            accessibilityLabel="重聽 15 秒"
+          >
+            <SkipIcon seconds={BACK_SECONDS} direction="back" size={30} color={C.accent} />
+          </Pressable>
+
+          <Pressable
+            onPress={onTogglePlay}
+            style={({ pressed }) => [styles.playBtn, pressed && styles.pressed]}
+            accessibilityRole="button"
+            accessibilityLabel={playing ? '暫停' : '播放'}
+          >
+            {playing ? <PauseIcon size={22} color={C.bg} /> : <PlayIcon size={24} color={C.bg} />}
+          </Pressable>
+
+          <Pressable
+            onPress={onForward30}
+            style={({ pressed }) => [styles.fwdBtn, pressed && styles.pressed]}
+            accessibilityRole="button"
+            accessibilityLabel="快轉 30 秒"
+          >
+            <SkipIcon
+              seconds={FORWARD_SECONDS}
+              direction="forward"
+              size={26}
+              color={C.dim}
+            />
+          </Pressable>
+        </View>
       </View>
     </View>
   );
 }
 
-const styles = StyleSheet.create({
-  // 摺疊
-  peek: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: SP(2),
-    backgroundColor: C.surface,
-    borderWidth: 1,
-    borderColor: C.border,
-    borderRadius: R.md,
-    paddingHorizontal: SP(3),
-    paddingVertical: SP(2),
-  },
-  peekText: { ...TYPE.body, color: C.text, flex: 1 },
-  peekHint: { ...TYPE.caption, color: C.faint, flex: 1 },
-  chevron: { ...TYPE.caption, color: C.dim },
+const MARKER_W = 3;
 
-  // 展開
-  panel: {
-    flex: 1,
-    backgroundColor: C.surface,
-    borderWidth: 1,
-    borderColor: C.border,
-    borderRadius: R.lg,
-    overflow: 'hidden',
-  },
+const styles = StyleSheet.create({
+  root: { flex: 1, backgroundColor: C.bg },
+
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: SP(2),
-    paddingHorizontal: SP(3),
-    paddingVertical: SP(2),
-    borderBottomWidth: 1,
-    borderBottomColor: C.border,
+    gap: SP(3),
+    paddingHorizontal: SP(4),
+    paddingBottom: SP(3),
   },
-  headerTitle: { ...TYPE.caption, color: C.dim, flex: 1 },
-  headerNote: { ...TYPE.caption, color: C.faint },
+  closeBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: C.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerText: { flex: 1 },
+  headerTitle: { ...TYPE.heading, color: C.text },
+  headerSub: { ...TYPE.caption, color: C.faint, fontWeight: '400', marginTop: 1 },
 
-  statusRow: {
-    paddingHorizontal: SP(3),
-    paddingVertical: SP(1),
-    backgroundColor: C.surfaceAlt,
-  },
-  statusText: { ...TYPE.caption, color: C.dim },
+  statusRow: { paddingHorizontal: SP(5), paddingBottom: SP(2) },
+  statusText: { ...TYPE.caption, color: C.dim, fontWeight: '400' },
 
   listWrap: { flex: 1 },
-  listContent: { paddingVertical: SP(2), paddingHorizontal: SP(2) },
-  emptyText: {
-    ...TYPE.caption,
-    color: C.faint,
-    paddingHorizontal: SP(2),
-    paddingVertical: SP(3),
+  listContent: {
+    paddingHorizontal: SP(4),
+    // 上下各留一大塊：當前句停在畫面 4 成高的位置，開頭與結尾也要捲得到那裡。
+    paddingTop: SP(4),
+    paddingBottom: SP(30),
   },
+  emptyText: { ...TYPE.body, color: C.faint, paddingHorizontal: SP(2) },
 
   row: {
-    paddingHorizontal: SP(2),
-    paddingVertical: SP(1),
+    flexDirection: 'row',
+    gap: SP(3),
+    paddingVertical: SP(2),
+    paddingRight: SP(2),
     borderRadius: R.md,
   },
-  rowCurrent: { backgroundColor: C.surfaceAlt },
-  lineCurrent: { ...TYPE.heading, color: C.text, fontWeight: '600' },
-  linePast: { ...TYPE.body, color: C.dim },
-  lineFuture: { ...TYPE.body, color: C.faint },
+  rowPressed: { backgroundColor: C.surface },
+
+  // 位置標記：不畫底色塊，靠一條左邊的細線。底色塊會讓長句變成一大片色板，
+  // 在滿版閱讀器裡比字本身還搶眼。
+  marker: {
+    width: MARKER_W,
+    borderRadius: MARKER_W,
+    backgroundColor: 'transparent',
+    marginTop: SP(1),
+    marginBottom: SP(1),
+  },
+  // 藍＝中性 chrome / 進度（theme.ts）。它表達的是播放位置，不是「你動手了」。
+  markerOn: { backgroundColor: C.primary },
+
+  // 三階的差距刻意拉大：字級 21 → 18，亮度 text → dim → faint。
+  // 在會動的畫面上，只靠顏色一階是看不出來的。
+  lineCurrent: {
+    flex: 1,
+    fontSize: 21,
+    lineHeight: 33,
+    fontWeight: '600',
+    color: C.text,
+    letterSpacing: 0.1,
+  },
+  linePast: { flex: 1, fontSize: 18, lineHeight: 30, fontWeight: '400', color: C.dim },
+  lineFuture: { flex: 1, fontSize: 18, lineHeight: 30, fontWeight: '400', color: C.faint },
 
   // Term 的兩段式底色：巢狀 Text 的 opacity 在 iOS 上不可靠，所以「較弱的一層」
-  // 靠換**底色**達成（surfaceAlt 取代半透明的 highlight），不靠透明度。
-  // 字色兩層都是 highlightInk —— `C.highlight` 是那塊帶 alpha 的琥珀**底色**，
-  // 拿它當字色會疊成 ~1.5:1，整句標註等於隱形。
+  // 靠換**底色**達成，不靠透明度。字色兩層都是 highlightInk —— `C.highlight`
+  // 是那塊帶 alpha 的琥珀**底色**，拿它當字色會疊成 ~1.5:1，整句標註等於隱形。
   term: { backgroundColor: C.surfaceAlt, color: C.highlightInk },
-  termCurrent: {
-    backgroundColor: C.highlight,
-    color: C.highlightInk,
-    fontWeight: '700',
-  },
+  termCurrent: { backgroundColor: C.highlight, color: C.highlightInk, fontWeight: '700' },
 
-  pill: {
+  followPill: {
     position: 'absolute',
     alignSelf: 'center',
-    bottom: SP(2),
-    backgroundColor: C.accent,
+    bottom: SP(4),
+    backgroundColor: C.surfaceAlt,
     borderRadius: R.pill,
-    paddingHorizontal: SP(3),
-    paddingVertical: SP(1),
+    paddingHorizontal: SP(4),
+    paddingVertical: SP(2),
   },
-  pillText: { ...TYPE.caption, color: C.accentInk, fontWeight: '700' },
+  followPillText: { ...TYPE.caption, color: C.text },
 
-  pressed: { opacity: 0.7 },
+  transport: {
+    paddingHorizontal: SP(5),
+    paddingTop: SP(3),
+    paddingBottom: SP(8),
+    backgroundColor: C.surface,
+    borderTopLeftRadius: R.xl,
+    borderTopRightRadius: R.xl,
+  },
+  barTouch: { height: 26, justifyContent: 'center' },
+  barTrack: { height: 4, borderRadius: 2, backgroundColor: C.border, overflow: 'hidden' },
+  barFill: { height: '100%', backgroundColor: C.primary },
+  thumb: {
+    position: 'absolute',
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: C.text,
+    marginLeft: -6,
+  },
+  thumbActive: { transform: [{ scale: 1.35 }] },
+  timeRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: -2 },
+  timeText: { ...TYPE.mono, color: C.faint, fontWeight: '400' },
+
+  controls: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: SP(8),
+    marginTop: SP(3),
+  },
+  backBtn: { width: 52, height: 52, alignItems: 'center', justifyContent: 'center' },
+  playBtn: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: C.text,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  fwdBtn: { width: 52, height: 52, alignItems: 'center', justifyContent: 'center' },
+  pressed: { opacity: 0.6 },
 });

@@ -21,3 +21,4 @@ covering the area they touch. Copy `0000-template.md` for new ones.
 | [0012](0012-single-learning-focus.md) | One learning focus per capture; multi-candidate diagnosis deferred | accepted |
 | [0013](0013-anonymous-auth-and-rls.md) | Anonymous auth is the identity floor; RLS scopes every row to its owner | accepted |
 | [0014](0014-manufactured-demo-transcripts.md) | 示範單集用自製對齊素材；與產品內容管線分開 | accepted |
+| [0015](0015-shell-with-mini-player.md) | 外殼式導覽：分頁 + mini player，播放器／逐字稿是覆蓋層 | accepted |

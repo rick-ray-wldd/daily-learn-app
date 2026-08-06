@@ -24,6 +24,7 @@ import {
 import { DEMO_EPISODES, Episode } from '../lib/episodes';
 import { PodcastSearchResult, searchPodcasts } from '../lib/podcastSearch';
 import { fetchAndParseFeed } from '../lib/rss';
+import { C as THEME } from '../lib/theme';
 import {
   addFeed,
   getFeed,
@@ -195,7 +196,7 @@ export default function PodcastBrowser({
     selectedFeedUrl === null ? DEMO_EPISODES : getFeedEpisodes(selectedFeedUrl);
 
   return (
-    <View>
+    <View style={styles.root}>
       {/* 搜尋列 */}
       <View style={styles.searchRow}>
         <TextInput
@@ -218,7 +219,7 @@ export default function PodcastBrowser({
 
       {searchMode ? (
         /* 搜尋模式：原地取代 feed 橫列 + 單集清單 */
-        <View>
+        <View style={styles.searchPane}>
           {searching && (
             <View style={styles.searchStatusRow}>
               <ActivityIndicator color={C.accent} size="small" />
@@ -430,20 +431,32 @@ export default function PodcastBrowser({
   );
 }
 
+/**
+ * 色票以 `lib/theme.ts` 為準。
+ *
+ * 這裡本來自己抄了一份色碼，於是同一個 app 有兩套設計系統——而且已經開始漂移：
+ * theme.ts 早就把 `dim` 從 #8A97A8 調亮成 #9FACBC（為了跟 `faint` 拉開距離），
+ * 這份副本沒跟上，所以探索頁的次要文字比其他畫面暗一階。
+ *
+ * 只留三個 theme 沒有的語意色（此元件專屬），其餘一律取用共用 token。
+ */
 const C = {
-  bg: '#0C1117',
-  card: '#161D26',
-  cardSelected: '#1E2A38',
-  border: '#243244',
-  text: '#E8EDF4',
-  dim: '#8A97A8',
-  accent: '#4ADE80',
+  ...THEME,
+  /** = THEME.surface，保留舊名避免這支檔案全面改名。 */
+  card: THEME.surface,
+  cardSelected: THEME.surfaceAlt,
+  /** 選中節目的底色（accent 的深色版）。 */
   accentDark: '#14532D',
-  primary: '#3B82F6',
+  /** 取消訂閱等破壞性操作。 */
   danger: '#EF4444',
 };
 
 const styles = StyleSheet.create({
+  // 探索現在是一個完整的分頁，不再是播放器裡的一塊，所以兩個清單都吃滿剩餘高度
+  // （以前是寫死的 maxHeight 320 / 232，那是為了塞進播放器才有的限制）。
+  root: { flex: 1 },
+  searchPane: { flex: 1 },
+
   searchRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -482,7 +495,7 @@ const styles = StyleSheet.create({
   dimText: { color: C.dim, fontSize: 13, lineHeight: 20 },
   noticeText: { color: C.dim, fontSize: 11, marginTop: 6 },
 
-  resultsList: { maxHeight: 320, marginTop: 10 },
+  resultsList: { flex: 1, marginTop: 10 },
   resultRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -531,7 +544,7 @@ const styles = StyleSheet.create({
   feedRemove: { position: 'absolute', top: 4, right: 6 },
   feedRemoveText: { color: C.dim, fontSize: 12, fontWeight: '700' },
 
-  episodeList: { maxHeight: 232, marginTop: 10 },
+  episodeList: { flex: 1, marginTop: 10 },
   episodeItem: {
     backgroundColor: C.card,
     borderRadius: 10,
