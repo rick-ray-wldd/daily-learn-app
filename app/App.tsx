@@ -32,7 +32,7 @@ import UpdateStatus from './components/UpdateStatus';
 import { Term } from './lib/annotate';
 import { DEMO_EPISODES, Episode } from './lib/episodes';
 import { ensureSession, isSupabaseConfigured } from './lib/supabase';
-import { makeReplayEvent, ReplayEvent, syncReplayEvent } from './lib/replay';
+import { makeReplayEvent, ReplayEvent, syncReplayEvent, TriggerSource } from './lib/replay';
 import { ingestReplayEvent, noteRateChange, noteTranscriptOpen } from './lib/captureEngine';
 import { getCaptures, getSrsItems, initStore, rememberEpisode, subscribe } from './lib/store';
 import { isDue, toDateStr, todayStr } from './lib/srs';
@@ -61,6 +61,15 @@ const TOP_INSET = Platform.OS === 'android' ? 40 : 60;
 const SEEK_SETTLE_SEC = 1.5;
 /** ……或等這麼久還沒追上就放手（音檔尚未載入、seek 被拒）。 */
 const SEEK_SETTLE_MS = 1500;
+
+/**
+ * 播放位置往回跳超過這麼多秒，而且不是 app 自己送出的 seek → 判定為外部倒帶
+ * （控制中心／鎖定畫面／之後的耳機遙控）。
+ *
+ * 取 3 秒是因為系統的往回鍵目前是 10 秒（見下面 setActiveForLockScreen 的註解），
+ * 而比這更小的位置變動是緩衝抖動或微調拖曳，不是「我沒聽懂」。
+ */
+const EXTERNAL_REWIND_MIN_SEC = 3;
 
 export default function App() {
   const [tab, setTab] = useState<TabKey>('browse');
@@ -105,23 +114,84 @@ export default function App() {
    */
   const positionSec = seekTarget ?? currentTime;
 
+  /**
+   * 鎖定畫面／控制中心要顯示的資訊。放在 ref 是因為「啟用」發生在 setAudioModeAsync
+   * 的 promise 之後，那時 render 的閉包可能已經過期（使用者早就換了一集）。
+   */
+  const lockScreenMetaRef = useRef({
+    title: episode.title,
+    artist: episode.podcast,
+    artworkUrl: episode.artworkUrl,
+  });
+
   // iOS: keep playing with the mute switch on; don't mix with other audio.
   useEffect(() => {
     setAudioModeAsync({
       playsInSilentMode: true,
       interruptionMode: 'doNotMix',
       shouldPlayInBackground: true,
-    }).catch((err) => console.warn('[audio] setAudioModeAsync failed:', err));
+    })
+      .then(() => {
+        /**
+         * 沒有這一行，控制中心／鎖定畫面就是死的：expo-audio 的 MediaController
+         * 要等到有人把 player 設成 active，才會去填 MPNowPlayingInfoCenter 並把
+         * MPRemoteCommandCenter 的各個 command `isEnabled = true`。在那之前
+         * 系統手上沒有這個 app 的曲目資訊，按鍵也沒有接收者——所以會看到別的
+         * app 的播放器，或按了沒反應。
+         *
+         * `interruptionMode` 必須是 'doNotMix' 系統才會把控制項對應到這個
+         * player，所以接在 setAudioModeAsync 後面而不是各跑各的。
+         *
+         * ⚠️ **只能呼叫這一次。** enableRemoteCommands 每次都 addTarget，而
+         * disable 用的 removeTarget(self) 移不掉 block 形式的 handler；重複啟用
+         * 會讓按一次往回鍵 seek 好幾次。換集一律走 updateLockScreenMetadata。
+         *
+         * 往回／往前鍵的秒數由 expo-audio 寫死（10 秒），JS 這邊改不了，所以
+         * 鎖定畫面的往回幅度與 app 內的 ↺15 不一致。這不影響訊號本身——難點
+         * 窗口是從 fromPos 往回算的（captureEngine），跟跳了幾秒無關。
+         */
+        playerRef.current.setActiveForLockScreen(true, lockScreenMetaRef.current, {
+          showSeekBackward: true,
+          showSeekForward: true,
+        });
+      })
+      .catch((err) => console.warn('[audio] setAudioModeAsync failed:', err));
   }, []);
 
   // 使用者主動選集才自動播；開 app 停在第一集不該直接出聲。
   const autoPlayRef = useRef(false);
+
+  /** 上一次看到的播放位置，用來偵測「位置忽然往回跳」。 */
+  const lastTimeRef = useRef(0);
+  /**
+   * 在這個時間戳之前，位置往回跳都當成是 app 自己造成的，不記錄。
+   * 用 ref 而不是 state：seekTo 送出到 state 生效之間會有 status tick 進來，
+   * 那一格會把我們自己的 ↺15 誤判成外部倒帶、記成第二筆事件。
+   */
+  const ignoreJumpUntilRef = useRef(0);
+  /** 最後一次自己送出的 seek 目標，用來認出「遲到才生效」的自家 seek。 */
+  const lastCommandedRef = useRef<number | null>(null);
 
   // 單集載入：初始集與換集一律走這裡（player 實例穩定，replace 不重建），
   // 並重新套用使用者目前選的播放速度。
   useEffect(() => {
     player.replace({ uri: episode.audioUrl });
     player.setPlaybackRate(RATES[rateIndex], 'high');
+
+    lockScreenMetaRef.current = {
+      title: episode.title,
+      artist: episode.podcast,
+      artworkUrl: episode.artworkUrl,
+    };
+    // 尚未啟用時是 no-op（首次啟用會自己讀上面那個 ref）。這裡不能改用
+    // setActiveForLockScreen —— 重複啟用會疊加 command handler。
+    player.updateLockScreenMetadata(lockScreenMetaRef.current);
+
+    // 換集時位置一定會回到 0，那不是使用者倒帶。把基準歸零，外部倒帶偵測
+    // 下一輪就會拿 0 當 prev，算出來的落差不可能為正。
+    lastTimeRef.current = 0;
+    lastCommandedRef.current = null; // 舊集的 seek 目標不能拿來認新集的位置
+
     if (autoPlayRef.current) {
       autoPlayRef.current = false;
       player.play();
@@ -203,13 +273,17 @@ export default function App() {
   // Core loop: record every backward seek as a replay_event AND feed it to
   // the capture engine (headphone/lockscreen sources will reuse this exact
   // path once the dev build lands — only triggerSource changes).
-  const logReplayEvent = (fromPos: number, toPos: number) => {
+  const logReplayEvent = (
+    fromPos: number,
+    toPos: number,
+    triggerSource: TriggerSource = 'screen',
+  ) => {
     const event = makeReplayEvent({
       episodeId: episode.id,
       fromPos,
       toPos,
       playbackRate: rate,
-      triggerSource: 'screen',
+      triggerSource,
     });
     setEvents((prev) => [event, ...prev]);
     ingestReplayEvent({
@@ -230,9 +304,35 @@ export default function App() {
   /** 所有 seek 的單一入口：真的 seek + 記下目標，讓進度條立刻到位。 */
   const seekTo = (target: number) => {
     const clamped = Math.max(0, duration > 0 ? Math.min(target, duration) : target);
+    // 先關掉外部倒帶偵測，再送 seek：這一跳是我們自己造成的，該記的呼叫端已經記了。
+    ignoreJumpUntilRef.current = Date.now() + SEEK_SETTLE_MS;
+    lastCommandedRef.current = clamped;
     void player.seekTo(clamped);
     setSeekTarget(clamped);
   };
+
+  /**
+   * 控制中心／鎖定畫面按往回，**不會經過這支 app 的任何 JS**：expo-audio 的
+   * MPRemoteCommandCenter handler 直接呼叫 AVPlayer.seek。所以那一下倒帶——
+   * 也就是這個產品唯一在乎的訊號——會憑空消失。
+   *
+   * 唯一還看得到它的地方是播放位置本身：狀態每 250ms 取樣一次，外部 seek 之後
+   * 下一格就會忽然往回。這裡把那個落差撈回 logReplayEvent，讓它跟 ↺15 走同一條
+   * 管線、只是 trigger_source 不同——ADR-0003 早就把「鎖定畫面遙控」列為來源之一。
+   */
+  useEffect(() => {
+    const prev = lastTimeRef.current;
+    lastTimeRef.current = currentTime;
+    if (Date.now() < ignoreJumpUntilRef.current) return;
+    if (prev - currentTime < EXTERNAL_REWIND_MIN_SEC) return;
+    // 自家的 seek 遲到才生效（音檔還在載入時送出的）會落在保險絲之外。認位置比認
+    // 時間可靠：寧可漏記一筆，也不要無中生有——幻覺事件會替一句學習者從沒重聽過的
+    // 話建出 capture，那比少一筆更傷。
+    const commanded = lastCommandedRef.current;
+    if (commanded !== null && Math.abs(currentTime - commanded) <= SEEK_SETTLE_SEC) return;
+    logReplayEvent(prev, currentTime, 'lockscreen');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentTime]);
 
   const togglePlay = () => {
     if (status.playing) player.pause();
