@@ -3,8 +3,8 @@
  *
  * Queue = 所有 pending captures（strong 排前）＋ 到期的 SRS 複習項目。
  * 每張卡的流程（signal-design.md §3：把雜訊過濾變成複習的第一步）：
- *   a. 確認：「真的沒聽懂」→ confirmed／「只是分心」→ dismissed（雜訊標註）
- *   b. 重聽 context 窗口（1x / 0.7x，到 context_end 自動停）
+ *   a. 重聽 context 窗口（1x / 0.7x，到 context_end 自動停）——**永遠可按**
+ *   b. 確認：「真的沒聽懂」→ confirmed／「只是分心」→ dismissed（雜訊標註）
  *   c. 逐字稿（先遮住）＋ Claude 診斷卡（皆可選，無 key 時降級）
  *   d. 跟讀錄音（expo-audio recorder），可與原音對照
  *   e. 評分 再來一次/記住了/太簡單 → 簡化 SM-2 → 下一張
@@ -587,11 +587,48 @@ export default function PracticeScreen() {
         {formatTime(liveCapture.context_end)}）
       </Text>
 
+      {/**
+       * Step a — 重聽。**兩個 step 都要 render。**
+       *
+       * 原本這一區塊被關在 step !== 'confirm' 的分支裡，所以每張新 capture
+       * 一開場只有節目標題、一個時間戳、和「真的沒聽懂／只是分心」兩顆按鈕
+       * ——沒有聲音也沒有文字，等於要使用者憑幾天前的記憶去判斷一個 15 秒
+       * 窗口。實測 9 張 capture 被 dismiss 掉 7 張、confirm rate 0%：訊號
+       * 在入口就被清空，後面的 SRS／診斷全都拿不到料。
+       *
+       * 「確認＝第二次曝光」的設計不變，只是把曝光真的給出來再問。
+       */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>重聽這段</Text>
+        <View style={styles.row}>
+          <Pressable
+            onPress={() => void playSegment(1)}
+            style={({ pressed }) => [styles.actionBtn, pressed && styles.pressed]}
+          >
+            <Text style={styles.actionBtnText}>▶ 原速 1x</Text>
+          </Pressable>
+          <Pressable
+            onPress={() => void playSegment(0.7)}
+            style={({ pressed }) => [styles.actionBtn, pressed && styles.pressed]}
+          >
+            <Text style={styles.actionBtnText}>▶ 慢速 0.7x</Text>
+          </Pressable>
+          {isPlaying && (
+            <Pressable
+              onPress={stopPlayback}
+              style={({ pressed }) => [styles.stopBtn, pressed && styles.pressed]}
+            >
+              <Text style={styles.actionBtnText}>⏹</Text>
+            </Pressable>
+          )}
+        </View>
+      </View>
+
       {step === 'confirm' ? (
-        /* Step a — 確認（雜訊過濾＝第二次曝光） */
+        /* Step b — 確認（雜訊過濾＝第二次曝光；先聽過再判斷） */
         <View style={styles.section}>
           <Text style={styles.confirmPrompt}>
-            你重聽了這一段。{'\n'}是真的沒聽懂，還是只是分心？
+            聽完再決定。{'\n'}是真的沒聽懂，還是只是分心？
           </Text>
           <Pressable
             onPress={onConfirm}
@@ -608,33 +645,6 @@ export default function PracticeScreen() {
         </View>
       ) : (
         <>
-          {/* Step b — 重聽 */}
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>重聽這段</Text>
-            <View style={styles.row}>
-              <Pressable
-                onPress={() => void playSegment(1)}
-                style={({ pressed }) => [styles.actionBtn, pressed && styles.pressed]}
-              >
-                <Text style={styles.actionBtnText}>▶ 原速 1x</Text>
-              </Pressable>
-              <Pressable
-                onPress={() => void playSegment(0.7)}
-                style={({ pressed }) => [styles.actionBtn, pressed && styles.pressed]}
-              >
-                <Text style={styles.actionBtnText}>▶ 慢速 0.7x</Text>
-              </Pressable>
-              {isPlaying && (
-                <Pressable
-                  onPress={stopPlayback}
-                  style={({ pressed }) => [styles.stopBtn, pressed && styles.pressed]}
-                >
-                  <Text style={styles.actionBtnText}>⏹</Text>
-                </Pressable>
-              )}
-            </View>
-          </View>
-
           {/* Step c — 逐字稿與診斷 */}
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>逐字稿</Text>
