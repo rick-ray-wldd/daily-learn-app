@@ -7,7 +7,28 @@
  * best-effort sync is a plain column-for-field upsert.
  */
 
-export type CaptureStrength = 'weak' | 'strong';
+/**
+ * 訊號強度三級。**它們是同一條管線上的深淺，不是三種來源**（ADR-0003）：
+ *
+ *   weak      倒帶了（可能只是分心，練習頁的 confirm 步驟負責過濾）
+ *   strong    倒帶 + 10 秒內降速或打開逐字稿
+ *   selected  倒帶 + 開稿 + 親手圈出是哪幾個字   ← migration 006
+ *
+ * 加 `selected` 而不是新開一個型別，是因為框選產生的東西在下游（診斷、SRS、
+ * 每日 session）跟倒帶產生的東西行為完全一樣；分家只會讓每個查詢都要處理兩種
+ * 形狀。⚠️ 三態之後，任何 `=== 'strong'` 的二分法都要重新檢查 else 分支——
+ * `selected` 是最強的一級，掉進「弱訊號」那一邊會是錯的。
+ */
+export type CaptureStrength = 'weak' | 'strong' | 'selected';
+
+/**
+ * 使用者**意圖**：他框的是一個詞還是一個句型。
+ *
+ * 刻意不重用 DiagnosisType 的六個值——那六個是 app 的**判斷結果**，這一個是
+ * 學習者自己說的。兩者可以不一致（他圈了一個詞、診斷卻認為真正的難點是連音），
+ * 而那個不一致本身就是有價值的資料，合併欄位會把它抹掉（migration 006）。
+ */
+export type SelectionKind = 'vocab' | 'grammar';
 
 export type CaptureStatus = 'pending' | 'confirmed' | 'dismissed' | 'practiced';
 
@@ -44,6 +65,16 @@ export interface Capture {
   status: CaptureStatus;
   transcript_text?: string;
   diagnosis?: Diagnosis;
+  /**
+   * 學習者親手框出來的那幾個字。只有 strength === 'selected' 時才有。
+   *
+   * 跟 `transcript_text` 分開存：後者是整句上下文（診斷需要），這裡是句子
+   * **裡面**的一小段。沒有這一欄，Claude 只能重新猜一次「難在哪」——而那正是
+   * 框選要消滅的不確定性。
+   */
+  selection_text?: string;
+  /** 他說那是詞還是句型。與 diagnosis.type 刻意分開，見 SelectionKind。 */
+  selection_kind?: SelectionKind;
   created_at: string; // ISO 8601
 }
 

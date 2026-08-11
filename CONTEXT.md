@@ -48,25 +48,59 @@ they heard, what they knew only in writing, and what they did not know; the resu
 seeds the comprehension profile with low confidence and becomes their first
 demonstration capture. _Avoid_: "placement test", "CEFR test".
 
-**Replay event** — one backward seek. Today a Back-15s button press; in the dev-build
-phase a headphone/lock-screen remote command; in Phase 2 an AirPods gesture. Every
-replay event is one row in `replay_events`, distinguished only by `trigger_source`.
-The atom the whole product is built on. _Avoid_: "rewind click", "skip".
+**Replay event** — one backward seek. Today a Back-15s button press or a
+headphone/lock-screen remote command (the latter *inferred* from a sudden backward
+jump in playback position — [ADR-0016](docs/adr/0016-remote-controls-and-inferred-rewind.md));
+in Phase 2 an AirPods gesture. Every replay event is one row in `replay_events`,
+distinguished only by `trigger_source` (`screen` | `headphone` | `lockscreen` |
+`select`). The atom the whole product is built on. `select` is the one source that
+does **not** accompany a playback-position change — it is an **explicit selection**,
+recorded on the same pipeline so nothing downstream has to know the difference.
+_Avoid_: "rewind click", "skip".
 
 **Rewind signal** — the *interpretation* of replay events as a comprehension gap.
 A replay event is raw; the rewind signal is what we infer from it. Not every replay
 event is a genuine gap (see **Signal strength**).
 
-**Signal strength** — the graded confidence that a replay event means "didn't
-understand": `strong` (★★★ — same-segment rewind ×2, or rewind-then-slow, or
-rewind-then-open-transcript) vs `weak` (★ — a single rewind then normal progress;
-possibly just distraction). Defined in `docs/01-product/signal-design.md §2`.
+**Signal strength** — the graded confidence that a capture means "didn't understand".
+**Three-valued, not two** — every `=== 'strong'` binary must account for the third
+state ([ADR-0017](docs/adr/0017-explicit-selection-signal.md)):
+
+| | | |
+| --- | --- | --- |
+| `weak` | ★ | a single rewind then normal progress; possibly just distraction |
+| `strong` | ★★★ | same-segment rewind ×2, or rewind-then-slow, or rewind-then-open-transcript |
+| `selected` | ★★★★ | rewind + transcript + the learner **pointed at the words** — no inference left |
+
+`weak` / `strong` are defined in `docs/01-product/signal-design.md §2`; `selected` is
+produced only by **explicit selection**.
+
+**Explicit selection（框選）** — the learner tapping the head and the tail of a word
+range in the transcript to say "*this* is what I didn't get". Produces a capture with
+`strength: 'selected'`, `status: 'confirmed'` (they just answered the confirm question
+themselves), a window equal to **that sentence**'s `segment.start/end` rather than the
+`[T-15, T]` **capture window**, the chosen words in `selection_text`, and the learner's
+own intent in `selection_kind` (`vocab` | `grammar`). `selection_kind` is deliberately
+**not** the six **difficulty types**: those are the app's judgment, this is the
+learner's — a mismatch between them is data, not an error. Cross-sentence selection is
+not supported. _Avoid_: "highlight"; and never "annotation" — that word means the
+opposite (see next entry).
+
+**Annotation（難點標註）** — the terms the *app* marks up in the transcript as
+probably-hard. It is a **guess**, which is why it is amber and explicit selection is
+green: green means the learner acted, amber means the app is guessing. The two never
+colour the same word — the moment selection mode opens, annotations stand down.
+Losing that line would erase the only visual distinction between evidence and
+inference, and inference being wrong is the normal case. _Avoid_: using "annotation"
+for anything the learner did.
 
 **Capture** — a graded, windowed unit of difficulty produced from one or more replay
 events: an episode-relative difficulty window `[window_start, window_end]`, a padded
-`[context_start, context_end]` replay window, a `strength`, and a `status`. The
-central domain object (`Capture` in `app/lib/types.ts`). _Avoid_: "clip", "snip",
-"bookmark".
+`[context_start, context_end]` replay window, a `strength`, and a `status`. Captures
+from **explicit selection** additionally carry `selection_text` / `selection_kind`;
+everything downstream (diagnosis, SRS, daily session) treats them identically, which
+is the whole point of not giving selection its own table. The central domain object
+(`Capture` in `app/lib/types.ts`). _Avoid_: "clip", "snip", "bookmark".
 
 **Learning focus（學習焦點）** — the single word, phrase, sound pattern, grammatical
 structure, accent feature, or cultural reference a capture's **diagnosis** pins as the
@@ -89,6 +123,12 @@ genuine comprehension gap, preserving the correct full-sentence window, and find
 the correct learning focus. `confirm rate` measures only the first part; diagnosis
 usefulness is evaluated separately. _Avoid_: using "confirm rate" for end-to-end
 accuracy.
+
+> **`selected` captures are excluded from `confirm rate`, numerator and denominator.**
+> They are born `confirmed`, so counting them turns "how accurate is rewind detection"
+> into "how much does this user use selection". Totals and difficulty-type
+> distribution still include them — they are genuine difficulties; only the
+> *detection-accuracy* question must not be answered by them.
 
 **Capture status** — the state machine axis: `pending` → `confirmed` | `dismissed`,
 and `practiced`. `pending` captures surface in tomorrow's session; the learner
@@ -139,8 +179,10 @@ Stored in `voice_profiles`.
 carried-over `pending` captures (strong first) for triage, the day's due **SRS items**,
 and the practice of the session's **strong** captures. It is **complete** when every
 pending capture is triaged, every in-scope strong capture is practiced, and all due
-reviews are done — weak captures need only triage. Captures rewound *today* form a
-separate 搶先 (get-ahead) tier that does not count toward completion. The product's
+reviews are done — weak captures need only triage. Captures made *today* — rewound
+**or selected** — form a separate 搶先 (get-ahead) tier that does not count toward
+completion; the date filter applies to both, or same-day selections (which arrive
+already `confirmed`) would walk straight into the official queue. The product's
 north-star surface; the bound and cap live in
 [ADR-0011](docs/adr/0011-honest-bounded-session.md). _Avoid_: "lesson".
 
@@ -168,7 +210,7 @@ seams if/when this is split (candidates, not yet split):
 
 | Context | Responsibility | Lives in |
 | --- | --- | --- |
-| **Signal** | replay events → graded captures | `app/lib/captureEngine.ts`, `replay.ts` |
+| **Signal** | replay events → graded captures | `app/lib/captureEngine.ts`, `replay.ts`, `selection.ts` |
 | **Content** | podcast search, RSS, episodes, transcripts | `app/lib/{podcastSearch,rss,episodes,transcript,transcriptFormats}.ts` |
 | **Diagnosis** | LLM difficulty classification | `app/lib/diagnose.ts` |
 | **Practice** | daily session, SRS, stats, notifications | `app/lib/{srs,stats,notifications}.ts`, `screens/Practice.tsx` |
@@ -193,13 +235,42 @@ speccing tests — the fewer seams the better):
   Whisper). Interface: `transcribe(episode)`. Adapter-swappable.
 - **`diagnose.ts`** — the async seam over Claude. Interface: `diagnose(capture)` →
   `Diagnosis | null`. Strict-schema tool call ⇒ guaranteed-parseable output.
+- **`selection.ts`** — **explicit selection** → one `selected` capture + one `select`
+  replay event. Deliberately split into two pure functions (`tokenize`,
+  `sliceSelection` — called on every touch, verifiable with no store/network/React)
+  and one effectful entry point (`commitSelection`). Good unit-test target alongside
+  `captureEngine`.
 - **`supabase.ts`** — the sync adapter. `null` in local-only mode. Nothing may block
   on it.
+
+Two **UI primitives** are load-bearing enough to name here, because ADR-0018 and
+ADR-0020 make every screen depend on them:
+
+- **`components/Glass.tsx` + `Gradient.tsx`** — the material layer, faked in pure JS
+  (fill + 1px top sheen + hairline edge + optional semantic bloom). No native module,
+  so visual work ships over OTA. Material tokens (`GLASS` / `BLOOM` / `RAMP` / `ELEV`)
+  are exported **separately from `C`**, because `C`'s contract is "every key is a
+  semantic colour" and material carries no semantics.
+- **`components/MasonryList.tsx`** — generic, non-virtualised, shortest-column-first
+  list. Knows nothing about Episode. Paging is the only throttle.
 
 **Known shallow / refactor candidates** (fodder for `/codebase-design` + `/to-spec`
 later — do not pre-emptively move; decide with tests):
 - `episodes.ts` mixes the Episode *model* with hardcoded demo rows — the demo data
   wants to move out before it grows.
+- **`store.ts:syncCapture` doesn't know `selection_text` / `selection_kind`**, so
+  `selection.ts` does a second remote upsert of its own. Both set only the columns
+  they know, so `on conflict (id) do update` can't clobber either way — but it should
+  be folded back into one write.
+- **"Which captures are eligible today" is implemented twice** — `screens/Practice.tsx`
+  (the queue) and `App.tsx:computeBadge` (the tab badge). They have already drifted
+  once over the same-day filter. Whichever refactor touches this should collapse them
+  into one function in `store.ts` or `stats.ts`.
+- ⚠️ **`app/supabase/migrations/006_explicit_selection_signal.sql` is not applied to
+  the hosted project** (verified: `42703` on `captures.selection_text`, and both CHECK
+  constraints still hold the old value sets). Selection therefore syncs *nothing* —
+  local-first hides it from the user, but server-side selection data is empty until
+  006 runs. See ADR-0017's Consequences.
 - Whisper/Claude live client-side today; **ADR-0008** already commits to moving them
   behind Supabase Edge Functions (W3). That refactor is the first big `implement` job.
 - No test suite yet. `captureEngine` + `srs` are pure and should get the first tests

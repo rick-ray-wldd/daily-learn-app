@@ -5,7 +5,7 @@
  * iPhone 上只分得到約三成高度，一次看得到五、六行。跟播捲動在那種視窗裡看起來
  * 不像「跟著唸」，而像「清單在抖」。逐字稿是這個 app 的閱讀模式，它需要整個畫面。
  *
- * 「現在唸到哪一句」靠三件事同時表達，缺一都不夠明顯：
+ * 「現在唸到哪一句」靠三件事同時表達，缺一都不夠明顯（ADR-0015，不准拿掉）：
  *   1. 字級（21 vs 18）    —— 掃視時第一眼就會落在最大的那行
  *   2. 亮度（text vs dim） —— 其餘句子退成背景
  *   3. 左側的藍色標記      —— 位置的絕對指標，就算兩行字級接近也認得出來
@@ -13,6 +13,20 @@
  * 播放位置，不是「你動手了」（綠）也不是「app 在猜」（琥珀）。
  *
  * 播放控制留在底部，所以看逐字稿時不必退回播放器就能 ↺15、暫停、拖進度。
+ *
+ * ── 框選模式（ADR-0017）────────────────────────────────────────────────────
+ * 這個畫面有兩種互斥的觸控語意，一次只能有一種生效：
+ *
+ *   idle    點一句 = 跳到那一句（今天的行為，一個字都沒改）。
+ *   選取中  點一句 = 把「可框選的那一列」移過去；點一個字 = 框起點／終點。
+ *
+ * 互斥是硬性的，不是偏好：同一下觸控若既可能跳播放位置又可能開始框選，使用者
+ * 每次圈字都會賭到播放器亂跳，而「跳回去重聽」正好是這個 app 唯一在乎的訊號——
+ * 亂記一筆比少記一筆更傷。
+ *
+ * 框選**不是重聽**：它不 seek、不 pause、不送 isRewind，因此也踩不到 App.tsx
+ * 的外部倒帶推斷（ADR-0016）。底部 transport 的 ↺15 在兩種模式下都活著，所以
+ * 框選也吃不掉重聽訊號。
  */
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -26,7 +40,10 @@ import {
   View,
 } from 'react-native';
 
+import Glass from './Glass';
+import Gradient from './Gradient';
 import { Chevron, PauseIcon, PlayIcon, SkipIcon } from './Glyph';
+import SelectionSheet, { SelectionDraft } from './SelectionSheet';
 import {
   ensureAnnotations,
   getTerms,
@@ -36,6 +53,7 @@ import {
   Term,
 } from '../lib/annotate';
 import { Episode } from '../lib/episodes';
+import { commitSelection, sliceSelection, Token, tokenize } from '../lib/selection';
 import { isSupabaseConfigured } from '../lib/supabase';
 import {
   ensureWindowFor,
@@ -44,8 +62,8 @@ import {
   preloadTranscript,
   windowFailure,
 } from '../lib/transcript';
-import { C, R, SP, TYPE } from '../lib/theme';
-import { TranscriptSegment } from '../lib/types';
+import { C, GLASS, R, SP, TYPE } from '../lib/theme';
+import { SelectionKind, TranscriptSegment } from '../lib/types';
 
 /** 展開時驅動轉錄的節流間隔。ensureWindowFor 自己會去重，這裡只是不要每 250ms 敲一次。 */
 const ENSURE_INTERVAL_MS = 3000;
@@ -68,6 +86,22 @@ const ANNOTATE_AHEAD_SEC = 300;
 
 const BACK_SECONDS = 15;
 const FORWARD_SECONDS = 30;
+
+/** 「已加入今天的練習」那顆膠囊停留多久。夠久到看得見，短到不用手動關。 */
+const CONFIRM_PILL_MS = 1800;
+
+/**
+ * 列表下緣淡出用的起點色：`C.bg` 的**全透明**版本（補 alpha=00）。
+ *
+ * 這不是新顏色，是同一個 token 的透明端點——所以它不需要在 theme.ts 宣告語意。
+ * 刻意不寫 `'transparent'`：Gradient 會把看不懂的字串當成 rgba(0,0,0,0)，於是
+ * 中段會內插出比底色更暗的一圈，在深底上看得出來。
+ */
+const BG_CLEAR = `${C.bg}00`;
+
+/** 身分恆定的空陣列：沒被鎖定的列每次 render 都拿同一個參考，memo 才擋得住。 */
+const EMPTY_TOKENS: Token[] = [];
+const EMPTY_SPANS: [number, number][] = [];
 
 interface Props {
   episode: Episode;
@@ -184,6 +218,27 @@ function buildHighlightIndex(
   return out;
 }
 
+/**
+ * 把 `splitByTerms` 的片段陣列還原成「term 在原文裡的 offset 區間」。
+ *
+ * 為什麼要還原而不是重算：`parts` 串起來**就是**原文，逐段累加長度即可拿到
+ * offset；重跑一次 `findWholeWord` 不但多花錢，還可能跟 `splitByTerms` 的
+ * 「重疊先到先贏」規則得出不同結果，畫面上就會出現兩套不一致的琥珀。
+ *
+ * 只有被鎖定、切成 token 的那一列需要這個——token 的邊界與 term 的邊界不一致
+ * （term 可能是片語，也可能只是單字的一部分），要靠區間重疊來判斷。
+ */
+function termSpans(parts: Part[] | undefined): [number, number][] {
+  if (!parts) return EMPTY_SPANS;
+  const out: [number, number][] = [];
+  let at = 0;
+  for (const p of parts) {
+    if (p.term) out.push([at, at + p.text.length]);
+    at += p.text.length;
+  }
+  return out;
+}
+
 function formatTime(totalSeconds: number): string {
   if (!Number.isFinite(totalSeconds) || totalSeconds < 0) return '0:00';
   const s = Math.floor(totalSeconds);
@@ -194,11 +249,26 @@ function formatTime(totalSeconds: number): string {
 // Row
 // ---------------------------------------------------------------------------
 
+/**
+ * 每一個欄位都是**純量或身分恆定的 handler**，一個物件／陣列都不准放。
+ *
+ * 選取範圍刻意拆成 `selFrom` / `selTo` 兩個數字而不是 `{from,to}`：物件每次
+ * render 都是新身分，memo 會全數失效——點一個字就會讓畫面上所有掛載的列重畫。
+ */
 interface RowProps {
   segment: TranscriptSegment;
   parts: Part[] | undefined;
   state: RowState;
-  onSelect: (segment: TranscriptSegment) => void;
+  /** 這一列是被鎖定、可框選的那一列（全份逐字稿同時最多一列為 true）。 */
+  selectable: boolean;
+  /** 選取模式的全域開關：true 時 term 不可按、琥珀底讓位給選取的綠底。 */
+  selecting: boolean;
+  /** 這一列的選取範圍（token index，含頭含尾）；沒有選取 = -1。 */
+  selFrom: number;
+  selTo: number;
+  onPressRow: (segment: TranscriptSegment) => void;
+  onLongPressRow: (segment: TranscriptSegment) => void;
+  onPressToken: (tokenIndex: number) => void;
   onOpenTerm: (term: Term) => void;
 }
 
@@ -206,10 +276,30 @@ const SegmentRow = memo(function SegmentRow({
   segment,
   parts,
   state,
-  onSelect,
+  selectable,
+  selecting,
+  selFrom,
+  selTo,
+  onPressRow,
+  onLongPressRow,
+  onPressToken,
   onOpenTerm,
 }: RowProps) {
   const current = state === 'current';
+
+  /**
+   * **只有被鎖定的那一列切 token。**
+   *
+   * 一句話切完約 22 個可按的巢狀 `<Text>`，而 RN 的 `Text` 只要 `isPressable`
+   * 就得走一整套 pressability 設定；整份逐字稿都這樣切，等於把每一列的成本乘上
+   * 二十倍。限制在一列之內，其餘所有列繼續走 `NativeVirtualText` 的免費路徑，
+   * 於是「閱讀」這條路徑的成本與加這個功能之前完全相同。
+   */
+  const tokens = useMemo(
+    () => (selectable ? tokenize(segment.text) : EMPTY_TOKENS),
+    [selectable, segment.text],
+  );
+  const spans = useMemo(() => (selectable ? termSpans(parts) : EMPTY_SPANS), [selectable, parts]);
 
   const pressTerm = (e: GestureResponderEvent, term: Term) => {
     // 點 term 到此為止——否則同一下也會被外層 Pressable 當成「跳到這句」，
@@ -220,8 +310,15 @@ const SegmentRow = memo(function SegmentRow({
 
   return (
     <Pressable
-      onPress={() => onSelect(segment)}
-      style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
+      // 被鎖定的那一列把 onPress／onLongPress 交出去（給 undefined 而不是空函式：
+      // 空函式仍會掛上 responder），觸控全歸底下的 token。
+      onPress={selectable ? undefined : () => onPressRow(segment)}
+      onLongPress={selectable ? undefined : () => onLongPressRow(segment)}
+      style={({ pressed }) => [
+        styles.row,
+        selectable && styles.rowLocked,
+        pressed && styles.rowPressed,
+      ]}
     >
       {/* 位置標記：只有當前句畫得出來，其餘句子留同寬的空位，免得整段文字左右跳。 */}
       <View style={[styles.marker, current && styles.markerOn]} />
@@ -230,22 +327,57 @@ const SegmentRow = memo(function SegmentRow({
           current ? styles.lineCurrent : state === 'past' ? styles.linePast : styles.lineFuture
         }
       >
-        {parts
-          ? parts.map((p, i) =>
-              p.term ? (
+        {selectable
+          ? tokens.map((t, i) => {
+              const picked = selFrom >= 0 && i >= selFrom && i <= selTo;
+              // 用 word 的長度（不含尾隨空白）去比對：token 尾巴的空白若算進來，
+              // 會誤咬到下一個字上的 term，多畫出一條底線。
+              const flagged = spans.some(
+                ([s, e]) => t.start < e && t.start + t.word.length > s,
+              );
+              return (
                 <Text
                   key={i}
-                  style={current ? styles.termCurrent : styles.term}
-                  onPress={(e) => pressTerm(e, p.term as Term)}
+                  onPress={() => onPressToken(i)}
+                  // suppressHighlighting：少了它，iOS 每點一個字都會閃一下系統灰底。
                   suppressHighlighting
+                  // 明寫 role：`isPressable` 的 Text 若沒指定，RN 會自動塞 'link'，
+                  // 一句 22 個 link 會讓 VoiceOver 把一個句子碎成 22 次滑動。
+                  accessibilityRole="text"
+                  style={
+                    picked
+                      ? flagged
+                        ? styles.tokenPickedTerm
+                        : styles.tokenPicked
+                      : flagged
+                        ? styles.termQuiet
+                        : undefined
+                  }
                 >
-                  {p.text}
+                  {t.text}
                 </Text>
-              ) : (
-                p.text
-              ),
-            )
-          : segment.text}
+              );
+            })
+          : parts
+            ? parts.map((p, i) =>
+                p.term ? (
+                  <Text
+                    key={i}
+                    // 選取模式下琥珀從「底色」降級成「底線」，並且不可按：
+                    // 背景這個通道整條讓給學習者親手圈出來的綠底（見 termQuiet）。
+                    style={
+                      selecting ? styles.termQuiet : current ? styles.termCurrent : styles.term
+                    }
+                    onPress={selecting ? undefined : (e) => pressTerm(e, p.term as Term)}
+                    suppressHighlighting
+                  >
+                    {p.text}
+                  </Text>
+                ) : (
+                  p.text
+                ),
+              )
+            : segment.text}
       </Text>
     </Pressable>
   );
@@ -277,10 +409,33 @@ export default function TranscriptScreen({
   // 暫停時沒有 positionSec 的更新來觸發重繪，轉錄失敗訊息得自己敲一下。
   const [, forceRender] = useState(0);
 
+  // --- 框選（四個純量，刻意不包成物件）-------------------------------------
+  //
+  // `selMode` 是第五個、也是規格之外的那一個：規格假設唯一入口是長按（於是
+  // 「選取模式開著」等同於「有一列被鎖定」），但這一版在標題列右邊多了一顆
+  // 「框選」開關，按下去時還沒有任何一列被鎖定，而 tap-to-seek 必須**在那一刻
+  // 就停用**——否則使用者按了開關、以為進入選取，點下第一句卻跳了播放位置。
+  const [selMode, setSelMode] = useState(false);
+  /** 被鎖定、可框選的那一列（rowKey）。null = 還沒挑句子。 */
+  const [selRow, setSelRow] = useState<string | null>(null);
+  /** 起點 token index，-1 = 尚未點頭。 */
+  const [selAnchor, setSelAnchor] = useState(-1);
+  /** 終點 token index，-1 = 只點了頭。 */
+  const [selFocus, setSelFocus] = useState(-1);
+  const [draft, setDraft] = useState<SelectionDraft | null>(null);
+  const [confirmed, setConfirmed] = useState(false);
+
   const listRef = useRef<FlatList<TranscriptSegment>>(null);
   const resumeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const confirmTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastScrolledRef = useRef(-1);
+
+  // 選取的三個值同時存在 ref 裡：傳給 row 的 handler 必須身分恆定（deps 為空），
+  // 所以它們讀不到 state 的最新值；而每一次點擊的決策都要看「現在點到頭了沒」。
+  const selectingRef = useRef(false);
+  const anchorRef = useRef(-1);
+  const focusRef = useRef(-1);
 
   // props 都經 ref 轉一手，讓傳給 row 的 handler 身分恆定 —— 否則 onSeek /
   // onOpenTerm 每次 re-render 換身分，memo 過的 row 全部白做。
@@ -320,6 +475,7 @@ export default function TranscriptScreen({
     () => () => {
       if (resumeTimer.current) clearTimeout(resumeTimer.current);
       if (retryTimer.current) clearTimeout(retryTimer.current);
+      if (confirmTimer.current) clearTimeout(confirmTimer.current);
     },
     [],
   );
@@ -394,6 +550,9 @@ export default function TranscriptScreen({
   }, [following, nearestIndex, segments.length, scrollToRow]);
 
   const armResume = useCallback(() => {
+    // 選取進行中一律不復原跟播：播放推進會把畫面往上捲，第二次點擊就會點歪——
+    // 而那兩次點擊之間隔多久，完全由使用者讀句子的速度決定。
+    if (selectingRef.current) return;
     if (resumeTimer.current) clearTimeout(resumeTimer.current);
     resumeTimer.current = setTimeout(() => setFollowing(true), FOLLOW_RESUME_MS);
   }, []);
@@ -425,14 +584,111 @@ export default function TranscriptScreen({
     [scrollToRow],
   );
 
-  // --- 點一句 = 跳過去（往回跳就是一次 replay event）------------------------
-  const handleSelect = useCallback((segment: TranscriptSegment) => {
-    // 1 秒寬容度讓「點目前這句」不會被誤記成重聽。positionRef 最多落後一個
-    // render（250ms），而這個誤差只會讓我們少記、不會多記——訊號寧可漏不可假。
-    seekRef.current(segment.start, segment.start < positionRef.current - 1);
-    // 點完立刻恢復跟隨：使用者剛剛指定了要聽哪裡，畫面應該跟過去。
-    resumeFollow();
-  }, [resumeFollow]);
+  // --- 框選的狀態機 ---------------------------------------------------------
+  //
+  //   idle      一般閱讀。點一句 = tap-to-seek。
+  //   armed     選取模式開著，還沒點頭（可能連句子都還沒挑）。
+  //   anchored  點了頭，範圍暫時只有那一個字。
+  //   ranged    頭尾都有，中間全部高亮。
+  //
+  // 「anchored 就讓動作列出現」是刻意的：只圈一個字是最常見的情況（sheet 的
+  // 第一個選項就叫「單字／片語」），若非得點兩個字才能送出，單字反而變成最難
+  // 表達的東西。範圍在 selFocus < 0 時就是 [anchor, anchor]。
+
+  /** 選取三值一起改。ref 與 state 同步寫：ref 給恆定 handler 讀，state 給畫面用。 */
+  const applySelection = useCallback((anchor: number, focus: number) => {
+    anchorRef.current = anchor;
+    focusRef.current = focus;
+    setSelAnchor(anchor);
+    setSelFocus(focus);
+  }, []);
+
+  /** 回到 idle。不碰播放位置，也不自己恢復跟播（那由呼叫端決定時機）。 */
+  const resetSelection = useCallback(() => {
+    selectingRef.current = false;
+    anchorRef.current = -1;
+    focusRef.current = -1;
+    setSelMode(false);
+    setSelRow(null);
+    setSelAnchor(-1);
+    setSelFocus(-1);
+  }, []);
+
+  const exitSelection = useCallback(() => {
+    resetSelection();
+    armResume(); // 這時 selectingRef 已經是 false，計時器才排得下去
+  }, [armResume, resetSelection]);
+
+  /** 換集：token index 是對「那一句」的座標，換一集之後毫無意義，一律歸零。 */
+  useEffect(() => {
+    resetSelection();
+    setDraft(null);
+  }, [episode.id, resetSelection]);
+
+  const enterSelection = useCallback((row: string | null) => {
+    // 沿用 onUserGrab 的語意：使用者動手了就先停跟播，而且在選取結束前不復原。
+    if (resumeTimer.current) clearTimeout(resumeTimer.current);
+    selectingRef.current = true;
+    anchorRef.current = -1;
+    focusRef.current = -1;
+    setFollowing(false);
+    setSelMode(true);
+    setSelRow(row);
+    setSelAnchor(-1);
+    setSelFocus(-1);
+  }, []);
+
+  const toggleSelectMode = useCallback(() => {
+    if (selectingRef.current) exitSelection();
+    else enterSelection(null); // 還沒挑句子，提示列會請他點一句
+  }, [enterSelection, exitSelection]);
+
+  // --- 點一句：selecting 決定它是「跳過去」還是「換一列來框」-----------------
+  const handlePressRow = useCallback(
+    (segment: TranscriptSegment) => {
+      if (selectingRef.current) {
+        // 選取模式下**絕不 seek**。跨句選取不支援（列與列之間有 paddingVertical
+        // 的空隙，畫不出連續色塊；而且 capture 的窗口被定義成「那一句」的
+        // start/end，跨句會讓那個窗口失去意義），所以點別的句子＝從那句重來。
+        enterSelection(rowKey(segment));
+        return;
+      }
+      // 1 秒寬容度讓「點目前這句」不會被誤記成重聽。positionRef 最多落後一個
+      // render（250ms），而這個誤差只會讓我們少記、不會多記——訊號寧可漏不可假。
+      seekRef.current(segment.start, segment.start < positionRef.current - 1);
+      // 點完立刻恢復跟隨：使用者剛剛指定了要聽哪裡，畫面應該跟過去。
+      resumeFollow();
+    },
+    [enterSelection, resumeFollow],
+  );
+
+  /** 長按是主要入口：不必先找開關，看到聽不懂的那一句直接壓住。 */
+  const handleLongPressRow = useCallback(
+    (segment: TranscriptSegment) => {
+      enterSelection(rowKey(segment));
+    },
+    [enterSelection],
+  );
+
+  const handlePressToken = useCallback(
+    (i: number) => {
+      const anchor = anchorRef.current;
+      const focus = focusRef.current;
+      if (anchor < 0) {
+        applySelection(i, -1); // armed → anchored
+        return;
+      }
+      if (i === anchor) {
+        // 點頭自己＝往回收一階：有範圍就收回只剩頭，只剩頭就整個取消。
+        applySelection(focus < 0 ? -1 : anchor, -1);
+        return;
+      }
+      // 點在頭前面也照收：兩次獨立的 tap 沒有天然的先後語意，範圍一律取
+      // [min, max]（sliceSelection 本身也順序不拘）。
+      applySelection(anchor, i);
+    },
+    [applySelection],
+  );
 
   const handleOpenTerm = useCallback((term: Term) => {
     openTermRef.current(term);
@@ -493,6 +749,63 @@ export default function TranscriptScreen({
   const displaySec = scrubSec ?? positionSec;
   const progress = durationSec > 0 ? Math.min(displaySec / durationSec, 1) : 0;
 
+  // --- 框選的衍生值 ---------------------------------------------------------
+  //
+  // 用 rowKey 在 segments 裡找回那一句，而不是在鎖定時把物件存進 ref：轉錄窗口
+  // 陸續到貨時 transcript.ts 會換掉整個陣列，存起來的舊物件可能已經被更準的
+  // 版本取代。rowKey 是 `start.toFixed(2)`，跨批次仍指得回同一句。
+  const selSegment = useMemo(
+    () => (selRow === null ? null : (segments.find((s) => rowKey(s) === selRow) ?? null)),
+    [segments, selRow],
+  );
+  // 這裡與 SegmentRow 各切一次同一句話。看起來重複，但那一份是 render 用的、
+  // 這一份是 commit 與預覽用的，硬要共用就得把陣列當 prop 傳下去——而傳陣列
+  // 正是 RowProps 全純量規則要擋掉的東西。一句話的切詞成本本來就接近零。
+  const selTokens = useMemo(
+    () => (selSegment ? tokenize(selSegment.text) : EMPTY_TOKENS),
+    [selSegment],
+  );
+  const selLo = selAnchor < 0 ? -1 : selFocus < 0 ? selAnchor : Math.min(selAnchor, selFocus);
+  const selHi = selAnchor < 0 ? -1 : selFocus < 0 ? selAnchor : Math.max(selAnchor, selFocus);
+  const selText = useMemo(
+    () => (selLo < 0 ? '' : sliceSelection(selTokens, selLo, selHi)),
+    [selTokens, selLo, selHi],
+  );
+
+  const openSelectionSheet = () => {
+    // 空字串直接放棄：寧可什麼都不發生，也不要建一筆沒有內容的 capture。
+    if (!selSegment || selText === '') return;
+    setDraft({ episodeId: episode.id, segment: selSegment, text: selText });
+  };
+
+  const handlePickKind = (kind: SelectionKind) => {
+    const picked = draft;
+    setDraft(null);
+    if (!picked || picked.text === '') return;
+    // 唯一的寫入點。commitSelection 不 seek、不 pause、不呼叫 ingestReplayEvent
+    // ——框選是最強的訊號，但它不是一次重聽（lib/selection.ts 的三條禁令）。
+    commitSelection({
+      episodeId: picked.episodeId,
+      segment: picked.segment,
+      text: picked.text,
+      kind,
+      positionSec: positionRef.current,
+      durationSec,
+    });
+    exitSelection();
+    setConfirmed(true);
+    if (confirmTimer.current) clearTimeout(confirmTimer.current);
+    confirmTimer.current = setTimeout(() => setConfirmed(false), CONFIRM_PILL_MS);
+  };
+
+  const handleClose = () => {
+    // 關閉前一定先清乾淨：選取狀態留在那裡，下次打開同一集會看到一列莫名其妙
+    // 亮著、而使用者早忘了自己框過什麼。
+    resetSelection();
+    setDraft(null);
+    onClose();
+  };
+
   // --- 狀態訊息 ------------------------------------------------------------
   // 現成逐字稿免費且不需要後端，所以「有沒有得抓」不等於「有沒有 Supabase」。
   const canFetch = isSupabaseConfigured || Boolean(episode.transcriptUrl);
@@ -511,7 +824,7 @@ export default function TranscriptScreen({
       {/* Header */}
       <View style={styles.header}>
         <Pressable
-          onPress={onClose}
+          onPress={handleClose}
           hitSlop={12}
           style={({ pressed }) => [styles.closeBtn, pressed && styles.pressed]}
           accessibilityRole="button"
@@ -525,6 +838,21 @@ export default function TranscriptScreen({
             {episode.title}
           </Text>
         </View>
+        {/* 開著時是綠的：框選就是「學習者動手了」，這個色相是它憑語意賺到的。 */}
+        <Pressable
+          onPress={toggleSelectMode}
+          hitSlop={10}
+          style={({ pressed }) => [
+            styles.selectBtn,
+            selMode && styles.selectBtnOn,
+            pressed && styles.pressed,
+          ]}
+          accessibilityRole="button"
+          accessibilityState={{ selected: selMode }}
+          accessibilityLabel={selMode ? '結束框選' : '開始框選'}
+        >
+          <Text style={[styles.selectBtnText, selMode && styles.selectBtnTextOn]}>框選</Text>
+        </Pressable>
       </View>
 
       {status !== null && (
@@ -544,44 +872,127 @@ export default function TranscriptScreen({
           ref={listRef}
           data={segments}
           keyExtractor={rowKey}
-          extraData={activeIndex}
+          // 選取狀態一定要進 extraData：點第二個字時，變的是**中間那些列**的
+          // selFrom/selTo，而它們自己的 item 沒動，FlatList 不會主動重畫。
+          extraData={`${activeIndex}|${selMode ? 1 : 0}|${selRow ?? ''}|${selAnchor}|${selFocus}`}
           onScrollToIndexFailed={onScrollToIndexFailed}
           onScrollBeginDrag={onUserGrab}
           onScrollEndDrag={armResume}
           onMomentumScrollEnd={armResume}
-          initialNumToRender={14}
-          maxToRenderPerBatch={16}
-          windowSize={11}
+          initialNumToRender={12}
+          // 選取模式下每一批的成本較高（被鎖定那列的 token、其餘列的樣式切換），
+          // 把批次與窗口都調小，讓捲動時的掉格分攤掉。
+          maxToRenderPerBatch={selMode ? 6 : 16}
+          windowSize={selMode ? 7 : 11}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.listContent}
           ListEmptyComponent={
             <Text style={styles.emptyText}>{status ?? '這一段還沒有逐字稿'}</Text>
           }
-          renderItem={({ item, index }) => (
-            <SegmentRow
-              segment={item}
-              parts={partsIndex.get(rowKey(item))}
-              state={
-                index === activeIndex ? 'current' : index <= nearestIndex ? 'past' : 'future'
-              }
-              onSelect={handleSelect}
-              onOpenTerm={handleOpenTerm}
-            />
-          )}
+          renderItem={({ item, index }) => {
+            const key = rowKey(item);
+            const locked = selMode && key === selRow;
+            return (
+              <SegmentRow
+                segment={item}
+                parts={partsIndex.get(key)}
+                state={
+                  index === activeIndex ? 'current' : index <= nearestIndex ? 'past' : 'future'
+                }
+                selectable={locked}
+                selecting={selMode}
+                selFrom={locked ? selLo : -1}
+                selTo={locked ? selHi : -1}
+                onPressRow={handlePressRow}
+                onLongPressRow={handleLongPressRow}
+                onPressToken={handlePressToken}
+                onOpenTerm={handleOpenTerm}
+              />
+            );
+          }}
         />
 
-        {!following && segments.length > 0 && (
+        {/* 整個畫面唯一的一個 Gradient：讓最後幾行溶進 transport，而不是被切齊
+            一刀。這是「還有東西在下面」最便宜的表達方式。 */}
+        <Gradient from={BG_CLEAR} to={C.bg} bands={16} style={styles.listFade} />
+
+        {selMode && selAnchor < 0 && (
+          <View pointerEvents="none" style={styles.pillWrap}>
+            <Glass weight="thick" radius={R.pill} style={styles.pill}>
+              <Text style={styles.pillText}>
+                {selRow === null ? '點一句話，再圈出聽不懂的字' : '點第一個字，再點最後一個字'}
+              </Text>
+            </Glass>
+          </View>
+        )}
+
+        {selMode && selAnchor >= 0 && selText !== '' && (
+          <Glass
+            weight="thick"
+            bloom="accent"
+            bloomCorner="topRight"
+            elevated
+            radius={R.lg}
+            style={styles.actionBar}
+          >
+            <View style={styles.actionRow}>
+              <Text style={styles.actionPreview} numberOfLines={1}>
+                {selText}
+              </Text>
+              <Pressable
+                onPress={exitSelection}
+                hitSlop={8}
+                style={({ pressed }) => [styles.actionCancel, pressed && styles.pressed]}
+                accessibilityRole="button"
+                accessibilityLabel="取消框選"
+              >
+                <Text style={styles.actionCancelText}>取消</Text>
+              </Pressable>
+              {/* 綠按鈕維持實色：accentInk 的 9.7:1 是對實色 accent 算的。 */}
+              <Pressable
+                onPress={openSelectionSheet}
+                style={({ pressed }) => [styles.actionAdd, pressed && styles.pressed]}
+                accessibilityRole="button"
+                accessibilityLabel="把圈起來的字加入難點"
+              >
+                <Text style={styles.actionAddText}>加入難點</Text>
+              </Pressable>
+            </View>
+          </Glass>
+        )}
+
+        {confirmed && (
+          <View pointerEvents="none" style={styles.pillWrap}>
+            <View style={[styles.pill, styles.confirmPill]}>
+              <Text style={styles.pillText}>已加入今天的練習</Text>
+            </View>
+          </View>
+        )}
+
+        {/* 選取中與剛送出時都不出現：它跟提示列／動作列／確認膠囊搶同一個位置，
+            而那三者在當下都比「回到目前位置」重要。 */}
+        {!following && !selMode && !confirmed && segments.length > 0 && (
           <Pressable
             onPress={resumeFollow}
-            style={({ pressed }) => [styles.followPill, pressed && styles.pressed]}
+            style={({ pressed }) => [styles.pillWrap, pressed && styles.pressed]}
           >
-            <Text style={styles.followPillText}>回到目前位置</Text>
+            <Glass weight="thick" radius={R.pill} style={styles.pill}>
+              <Text style={styles.pillText}>回到目前位置</Text>
+            </Glass>
           </Pressable>
         )}
       </View>
 
-      {/* 底部播放控制：看逐字稿時不必退回播放器 */}
-      <View style={styles.transport}>
+      {/* 底部播放控制：看逐字稿時不必退回播放器。
+          藍暈＝這塊面板在講「正在播放／進度」，是中性 chrome 賺到的色相；
+          綠色只出現在 ↺15 那一顆鍵上（學習者動手了），不擴散到整塊面板。 */}
+      <Glass
+        weight="thick"
+        bloom="primary"
+        bloomCorner="topRight"
+        radius={R.xl}
+        style={styles.transport}
+      >
         <View style={styles.barTouch} onLayout={onBarLayout} {...scrubResponder.panHandlers}>
           <View style={styles.barTrack}>
             <View style={[styles.barFill, { width: `${progress * 100}%` }]} />
@@ -636,7 +1047,15 @@ export default function TranscriptScreen({
             />
           </Pressable>
         </View>
-      </View>
+      </Glass>
+
+      {/* 這一層是 Modal，但 TranscriptScreen 自己只是 App.tsx 的絕對定位覆蓋層
+          （ADR-0015），所以整條路徑上仍然只有一層 Modal。 */}
+      <SelectionSheet
+        draft={draft}
+        onCancel={() => setDraft(null)} // 回到 ranged，不清空——他可能只想改範圍
+        onPick={handlePickKind}
+      />
     </View>
   );
 }
@@ -653,17 +1072,35 @@ const styles = StyleSheet.create({
     paddingHorizontal: SP(4),
     paddingBottom: SP(3),
   },
+  // 這兩顆小控制項也玻璃化：填色 + hairline 一起換成 GLASS 那一組。兩套邊框不
+  // 混用（theme.ts 的分工），所以這裡不會再出現 C.border。
   closeBtn: {
     width: 34,
     height: 34,
     borderRadius: 17,
-    backgroundColor: C.surface,
+    backgroundColor: GLASS.fill,
+    borderWidth: 1,
+    borderColor: GLASS.edge,
     alignItems: 'center',
     justifyContent: 'center',
   },
   headerText: { flex: 1 },
   headerTitle: { ...TYPE.heading, color: C.text },
   headerSub: { ...TYPE.caption, color: C.faint, fontWeight: '400', marginTop: 1 },
+
+  selectBtn: {
+    height: 30,
+    paddingHorizontal: SP(3),
+    borderRadius: R.pill,
+    backgroundColor: GLASS.fill,
+    borderWidth: 1,
+    borderColor: GLASS.edge,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  selectBtnOn: { backgroundColor: C.accentSurface, borderColor: C.accent },
+  selectBtnText: { ...TYPE.caption, color: C.dim },
+  selectBtnTextOn: { color: C.text },
 
   statusRow: { paddingHorizontal: SP(5), paddingBottom: SP(2) },
   statusText: { ...TYPE.caption, color: C.dim, fontWeight: '400' },
@@ -685,6 +1122,9 @@ const styles = StyleSheet.create({
     borderRadius: R.md,
   },
   rowPressed: { backgroundColor: C.surface },
+  // 被鎖定的那一列刻意沿用 rowPressed 的同一個底色，不發明新的視覺語言：
+  // 「這一列現在被按著」與「這一列現在可以圈」是同一件事的兩種說法。
+  rowLocked: { backgroundColor: C.surface },
 
   // 位置標記：不畫底色塊，靠一條左邊的細線。底色塊會讓長句變成一大片色板，
   // 在滿版閱讀器裡比字本身還搶眼。
@@ -717,27 +1157,79 @@ const styles = StyleSheet.create({
   term: { backgroundColor: C.surfaceAlt, color: C.highlightInk },
   termCurrent: { backgroundColor: C.highlight, color: C.highlightInk, fontWeight: '700' },
 
-  followPill: {
-    position: 'absolute',
-    alignSelf: 'center',
-    bottom: SP(4),
-    backgroundColor: C.surfaceAlt,
-    borderRadius: R.pill,
-    paddingHorizontal: SP(4),
+  /**
+   * 選取模式下的 term：**琥珀從底色降級成底線**。
+   *
+   * 這是「證據 vs 推測」那條分界線在選取模式下的活法。綠底（`accentSurface`）＝
+   * 學習者親手圈的，琥珀＝app 猜的；兩者若共用「背景」這一個通道，同一個字上
+   * 就會疊出一塊誰也認不出來的顏色，而那條分界正是整個產品的論點。所以背景整條
+   * 讓給綠色，琥珀退到底線——兩個訊號同時看得見，而且永遠分得出誰是誰。
+   *
+   * 用 textDecoration 而不是 borderBottom：巢狀 `<Text>` 在 iOS 上是 attributed
+   * string，border 系列根本不會畫出來。
+   */
+  termQuiet: {
+    color: C.highlightInk,
+    textDecorationLine: 'underline',
+    textDecorationColor: C.highlightInk,
+  },
+  /** 被圈起來的字。current/past/future 一律 C.text——faint 疊在綠底上會掉出 AA。 */
+  tokenPicked: { backgroundColor: C.accentSurface, color: C.text },
+  /** 又被圈、又是 app 猜的難點詞：綠底 + 琥珀底線，兩個訊號各佔一個通道。 */
+  tokenPickedTerm: {
+    backgroundColor: C.accentSurface,
+    color: C.text,
+    textDecorationLine: 'underline',
+    textDecorationColor: C.highlightInk,
+  },
+
+  // 列表下緣的淡出。高度約兩行，再高就會把還在讀的字也吃掉。
+  listFade: { position: 'absolute', left: 0, right: 0, bottom: 0, height: 72 },
+
+  // 提示列／確認膠囊／「回到目前位置」共用同一個落點：它們永遠不同時出現，
+  // 位置一致才不會讓使用者每次都要重新找。
+  pillWrap: { position: 'absolute', alignSelf: 'center', bottom: SP(4) },
+  pill: { borderRadius: R.pill, paddingHorizontal: SP(4), paddingVertical: SP(2) },
+  pillText: { ...TYPE.caption, color: C.text },
+  /** 綠底＝剛剛那一下是學習者自己動的手。 */
+  confirmPill: { backgroundColor: C.accentSurface },
+
+  actionBar: { position: 'absolute', left: SP(4), right: SP(4), bottom: SP(3) },
+  // 排版放在內層：elevated 的 Glass 會把 style 交給外層投影用的 View，
+  // flexDirection 寫在那上面排不到內容。
+  actionRow: { flexDirection: 'row', alignItems: 'center', gap: SP(2), padding: SP(2) },
+  actionPreview: {
+    flex: 1,
+    ...TYPE.caption,
+    color: C.text,
+    backgroundColor: C.accentSurface,
+    borderRadius: R.sm,
+    paddingHorizontal: SP(2),
+    paddingVertical: SP(1),
+    overflow: 'hidden', // iOS 上 Text 的圓角要靠這個才會裁
+  },
+  actionCancel: { paddingHorizontal: SP(2), paddingVertical: SP(2) },
+  actionCancelText: { ...TYPE.caption, color: C.dim },
+  actionAdd: {
+    backgroundColor: C.accent,
+    borderRadius: R.md,
+    paddingHorizontal: SP(3),
     paddingVertical: SP(2),
   },
-  followPillText: { ...TYPE.caption, color: C.text },
+  actionAddText: { ...TYPE.caption, color: C.accentInk, fontWeight: '700' },
 
   transport: {
     paddingHorizontal: SP(5),
     paddingTop: SP(3),
     paddingBottom: SP(8),
-    backgroundColor: C.surface,
-    borderTopLeftRadius: R.xl,
-    borderTopRightRadius: R.xl,
+    // 下面兩個角在螢幕外，留著只會讓 hairline 在底緣彎一下。
+    borderBottomLeftRadius: 0,
+    borderBottomRightRadius: 0,
   },
   barTouch: { height: 26, justifyContent: 'center' },
-  barTrack: { height: 4, borderRadius: 2, backgroundColor: C.border, overflow: 'hidden' },
+  // 玻璃是凸的、軌道是凹的：用 GLASS.well 而不是 C.border（那條 hairline 色被
+  // 當成填色用是既有的漂移，這塊面板改成玻璃之後更是不能留）。
+  barTrack: { height: 4, borderRadius: 2, backgroundColor: GLASS.well, overflow: 'hidden' },
   barFill: { height: '100%', backgroundColor: C.primary },
   thumb: {
     position: 'absolute',
@@ -749,7 +1241,9 @@ const styles = StyleSheet.create({
   },
   thumbActive: { transform: [{ scale: 1.35 }] },
   timeRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: -2 },
-  timeText: { ...TYPE.mono, color: C.faint, fontWeight: '400' },
+  // transport 改成玻璃之後這裡從 faint 升一階：faint 的 4.6:1 是對實色 surface
+  // 算的，玻璃底下是「底色 × 半透明填色 × 色暈」的變數，會掉出 AA。
+  timeText: { ...TYPE.mono, color: C.dim, fontWeight: '400' },
 
   controls: {
     flexDirection: 'row',

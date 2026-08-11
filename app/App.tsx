@@ -6,15 +6,15 @@
  * 個動作可做，（二）逐字稿只能分到控制項用剩的三成高度，跟播看起來像清單在抖。
  *
  *   ┌───────────────────────────┐
- *   │ 分頁內容（探索 ／ 練習）   │  ← 各自拿到整個畫面
+ *   │ 分頁內容（首頁 ／ 探索 ／ 練習）│  ← 各自拿到整個畫面
  *   ├───────────────────────────┤
- *   │ mini player               │  ← 常駐，點了往上升起
+ *   │ mini player               │  ← 首頁以外常駐，點了往上升起
  *   │ 分頁列                     │
  *   └───────────────────────────┘
  *        ↑ NowPlaying 覆蓋上來
  *             ↑ TranscriptScreen 再覆蓋上來
  *
- * 播放狀態全部留在這裡（player、seekTarget、rate、events）：它是跨畫面的，
+ * 播放狀態全部留在這裡（player、seekTarget、rate、volume、events）：它是跨畫面的，
  * 誰在最上層都不影響「現在聽到哪裡」。子畫面只拿值與 callback。
  */
 import { StatusBar } from 'expo-status-bar';
@@ -23,6 +23,7 @@ import { AppState, Platform, Pressable, StyleSheet, Text, View } from 'react-nat
 import { setAudioModeAsync, useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
 import * as Notifications from 'expo-notifications';
 
+import HomeScreen from './components/HomeScreen';
 import MiniPlayer from './components/MiniPlayer';
 import NowPlaying from './components/NowPlaying';
 import PodcastBrowser from './components/PodcastBrowser';
@@ -44,7 +45,20 @@ const BACK_SECONDS = 15;
 const FORWARD_SECONDS = 30;
 const RATES = [1, 0.85, 0.7] as const;
 
+/**
+ * 三個分頁。首頁**含**探索 masonry 與練習入口，所以「那兩個分頁還留著幹嘛」是
+ * 個該回答的問題——兩個都留，理由不同：
+ *
+ * - **探索**留著是因為首頁的 masonry 只吃「已經有的東西」（DEMO 集 + 已訂閱 feed
+ *   的單集）。搜尋 iTunes、訂閱新節目只有 PodcastBrowser 做得到，而首頁見底時的
+ *   footer 正是把人往這裡送。首頁是消費、探索是取得，同一個名字兩件事。
+ * - **練習**留著是因為徽章要能一眼看到（分頁列常駐，首頁的今日練習磚要捲到才看得
+ *   見），而練習是一段全螢幕的流程，不是首頁塞得下的東西。首頁那塊磚是入口、
+ *   分頁是目的地——兩者指向同一處完全正常（Apple Podcasts 的資料庫卡片與資料庫
+ *   分頁就是這樣）。
+ */
 const TABS = [
+  { key: 'home', label: '首頁' },
   { key: 'browse', label: '探索' },
   { key: 'practice', label: '練習' },
 ] as const;
@@ -72,10 +86,18 @@ const SEEK_SETTLE_MS = 1500;
 const EXTERNAL_REWIND_MIN_SEC = 3;
 
 export default function App() {
-  const [tab, setTab] = useState<TabKey>('browse');
+  const [tab, setTab] = useState<TabKey>('home');
   const [practiceBadge, setPracticeBadge] = useState(0);
   const [episode, setEpisode] = useState<Episode>(DEMO_EPISODES[0]);
   const [rateIndex, setRateIndex] = useState(0);
+  /**
+   * expo-audio 57 的 `player.volume` 可寫（0.0–1.0），但 `AudioStatus` **沒有**
+   * volume 欄位（只有 mute）——讀不回來，所以這個 state 就是唯一真相。
+   *
+   * 它調的是 app 內部的播放增益，與系統音量相乘：使用者按實體按鍵或到控制中心
+   * 調的是後者，那些改動同步不回這裡，兩條路各走各的。
+   */
+  const [volume, setVolume] = useState(1);
   const [events, setEvents] = useState<ReplayEvent[]>([]);
   /** 已送出、還在等播放位置追上的 seek 目標。 */
   const [seekTarget, setSeekTarget] = useState<number | null>(null);
@@ -177,6 +199,10 @@ export default function App() {
   useEffect(() => {
     player.replace({ uri: episode.audioUrl });
     player.setPlaybackRate(RATES[rateIndex], 'high');
+    // 理由與上一行完全相同：v57 的文件**沒有**說 volume 在 replace() 之後還在，
+    // 而「沒寫」不是可以依賴的保證。不重套的話 UI 顯示的音量就會與實際脫鉤，
+    // 正好重演當初速度脫鉤的那個 bug。
+    player.volume = volume;
 
     lockScreenMetaRef.current = {
       title: episode.title,
@@ -210,6 +236,17 @@ export default function App() {
   // (badge = 正式佇列數：昨天以前的 pending + confirmed 但沒評分過的孤兒卡
   // + 到期 SRS 複習；今天剛抓的 pending 不算——收在練習頁的「搶先練」)。
   // 規則與 Practice.tsx 的佇列建構一致。
+  //
+  // 逐字稿框選產生的 capture 不需要在這裡加任何東西就會被算到：commitSelection
+  // 走的是 store 的 upsertCapture，而它結尾會 notify() → 底下這個 subscribe 就重算。
+  //
+  // ⚠️ 但它**當天不該進徽章**。框選出來的 capture 一出生就是 'confirmed'，會直接
+  // 落進 orphanConfirmed 那一桶；如果不擋日期，圈完字的當下徽章就 +1，可是練習頁
+  // 已經把同一天的 capture 分流到「搶先練」而不是正式佇列（ADR-0011）——徽章說有
+  // 3 張、點進去正式佇列是空的，那是最傷信任的一種不一致。所以兩桶都要過同一道
+  // `< today`。
+  //
+  // 這裡是 Practice.tsx 佇列建構的孿生實作，**兩邊的過濾條件必須逐字一致**。
   useEffect(() => {
     const computeBadge = () => {
       const today = todayStr();
@@ -221,9 +258,13 @@ export default function App() {
       ).length;
       const srsItems = getSrsItems();
       const srsIds = new Set(srsItems.map((i) => i.capture_id));
-      // 上次按了「真的沒聽懂」但沒評分就離開的卡（confirmed 且無 SRS item）
+      // 上次按了「真的沒聽懂」但沒評分就離開的卡（confirmed 且無 SRS item），
+      // 以及昨天以前框選的。今天的兩者都歸「搶先練」，不算正式佇列。
       const orphanConfirmed = captures.filter(
-        (c) => c.status === 'confirmed' && !srsIds.has(c.id),
+        (c) =>
+          c.status === 'confirmed' &&
+          !srsIds.has(c.id) &&
+          toDateStr(new Date(c.created_at)) < today,
       ).length;
       const dueReviews = srsItems.filter(
         (i) => isDue(i) && !pendingIds.has(i.capture_id),
@@ -359,6 +400,19 @@ export default function App() {
   };
 
   /**
+   * 音量的唯一入口。夾在 0–1 是因為 volume 是從 UI 的手勢算出來的比例，
+   * 手指滑出軌道時算出來的值會超出兩端。
+   *
+   * 與 cycleRate 不同，這裡**不記任何訊號**：調音量不代表沒聽懂（吵、戴上耳機、
+   * 旁邊有人都會調），把它當訊號會稀釋掉真正的重聽。
+   */
+  const applyVolume = (v: number) => {
+    const clamped = Math.max(0, Math.min(1, v));
+    setVolume(clamped);
+    player.volume = clamped;
+  };
+
+  /**
    * 往回跳 = 一次 replay event，與 ↺15 完全同一條路徑，只是概念上的
    * trigger_source 不同（ADR-0003）。
    *
@@ -401,6 +455,14 @@ export default function App() {
     noteTranscriptOpen(episode.id);
   };
 
+  /**
+   * NowPlaying 把它印成「今天 N 次重聽」，所以這裡只能裝**重聽**。
+   *
+   * 框選（trigger_source 'select'）刻意不進 `events`：它不 seek、不動播放位置，
+   * 本來就不是重聽（selection.ts 的三條禁令）。把它算進來只會讓這個數字說謊，
+   * 而這個數字正是整個產品的論點。它自己的遠端事件由 commitSelection 直送
+   * syncReplayEvent，不經過外殼。
+   */
   const todayCount = useMemo(() => {
     const today = new Date().toDateString();
     return events.filter((e) => new Date(e.created_at).toDateString() === today).length;
@@ -433,7 +495,32 @@ export default function App() {
         <UpdateStatus />
 
         <View style={styles.tabContent}>
-          {tab === 'browse' ? (
+          {tab === 'home' ? (
+            /* 播放狀態全部由外殼供給，HomeScreen 永遠拿不到 player 實例（ADR-0015）。
+               往回鍵一定要接 back15 而不是自己算目標再 seek——它會記 replay event。
+               這裡沒有 onSeek：首頁的進度條是唯讀的，第三份可拖曳的 scrubber 會跟
+               捲動容器搶手勢，要拖就點卡片升起 NowPlaying。 */
+            <HomeScreen
+              episode={episode}
+              positionSec={positionSec}
+              durationSec={duration}
+              playing={status.playing}
+              rate={rate}
+              loadState={loadState}
+              volume={volume}
+              onTogglePlay={togglePlay}
+              onBack15={back15}
+              onForward30={forward30}
+              onCycleRate={cycleRate}
+              onVolumeChange={applyVolume}
+              onOpenNowPlaying={() => setNowPlayingOpen(true)}
+              onOpenTranscript={openTranscript}
+              onSelectEpisode={selectEpisode}
+              onGoPractice={() => switchTab('practice')}
+              onGoBrowse={() => switchTab('browse')}
+              practiceBadge={practiceBadge}
+            />
+          ) : tab === 'browse' ? (
             <PodcastBrowser
               selectedEpisodeId={episode.id}
               onSelectEpisode={selectEpisode}
@@ -444,15 +531,27 @@ export default function App() {
         </View>
       </View>
 
-      <MiniPlayer
-        episode={episode}
-        positionSec={positionSec}
-        durationSec={duration}
-        playing={status.playing}
-        onOpen={() => setNowPlayingOpen(true)}
-        onTogglePlay={togglePlay}
-        onBack15={back15}
-      />
+      {/*
+        首頁不掛 mini player：首頁的 hero 是它的**超集**（封面、標題、進度、↺15、
+        播放、快轉、速度、音量、逐字稿），兩條 transport 疊在同一畫面上，使用者要先
+        決定該按哪一顆才能按——而兩顆 ↺15 送出的是同一個訊號，這個猶豫毫無回報。
+        少掉一條也讓首頁多拿一整條的高度給 bento。
+
+        已知取捨：hero 會跟著捲走，捲到探索區時就沒有 transport 了。不做「捲過就淡入
+        mini player」是因為那要把 onScroll 從 MasonryList 一路穿回外殼、再加一段
+        crossfade，而首頁的每張卡本來就能點開 NowPlaying。留給下一輪。
+      */}
+      {tab !== 'home' && (
+        <MiniPlayer
+          episode={episode}
+          positionSec={positionSec}
+          durationSec={duration}
+          playing={status.playing}
+          onOpen={() => setNowPlayingOpen(true)}
+          onTogglePlay={togglePlay}
+          onBack15={back15}
+        />
+      )}
 
       <View style={styles.tabBar}>
         {TABS.map(({ key, label }) => {

@@ -23,3 +23,7 @@ covering the area they touch. Copy `0000-template.md` for new ones.
 | [0014](0014-manufactured-demo-transcripts.md) | 示範單集用自製對齊素材；與產品內容管線分開 | accepted |
 | [0015](0015-shell-with-mini-player.md) | 外殼式導覽：分頁 + mini player，播放器／逐字稿是覆蓋層 | accepted |
 | [0016](0016-remote-controls-and-inferred-rewind.md) | 系統播放控制項；外部倒帶靠位置推斷回同一條管線 | accepted |
+| [0017](0017-explicit-selection-signal.md) | 框選是既有訊號的最強一級，不是新的管線 | accepted |
+| [0018](0018-glass-material-layer.md) | 玻璃材質層用疊層自己做，不裝原生模組；材質與語意分開兩套 token | accepted |
+| [0019](0019-home-tab-and-conditional-mini-player.md) | 首頁分頁：三分頁外殼，mini player 只在首頁以外常駐 | accepted |
+| [0020](0020-bento-over-masonry.md) | 首頁把 bento 與 masonry 上下疊，不並排也不交錯 | accepted |
