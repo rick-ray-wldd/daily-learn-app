@@ -251,7 +251,14 @@ export default function HomeScreen({
       // 先複製再排序：getCaptures() 回的是 store 的**內部陣列**，就地 sort 會把
       // store 自己的順序打亂（它靠 unshift 維持新到舊）。
       [...getCaptures()]
-        .filter((c) => !!c.selection_text)
+        // segmentation 的 selection_text 是**整句**，塞進 34pt 高、單行、沒有
+        // maxWidth 的膠囊只會變成一條被截斷的長句，把水平 ScrollView 撐爆。
+        // 它不是「詞庫」裡的東西——「我切不出詞」這件事要另外一塊面板才講得清楚。
+        //
+        // strength 'saved' 的詞則**留著**：那確實是使用者說想學的東西，詞庫問的是
+        // 「他想練什麼」而不是「他哪裡聽不懂」。它靠底下的琥珀點與缺席的綠底跟
+        // 親手圈的字區分開來。
+        .filter((c) => !!c.selection_text && c.selection_kind !== 'segmentation')
         .sort((a, b) => (a.created_at < b.created_at ? 1 : a.created_at > b.created_at ? -1 : 0))
         .slice(0, 12),
     [rev],
@@ -452,7 +459,7 @@ export default function HomeScreen({
       <Glass radius={R.lg} style={styles.vocab}>
         <Text style={styles.vocabHeading}>難點詞庫</Text>
         {chips.length === 0 ? (
-          <Text style={styles.vocabEmpty}>在逐字稿裡圈出聽不懂的字，會出現在這裡</Text>
+          <Text style={styles.vocabEmpty}>圈出聽不懂的字、或把標注的詞加入練習，會出現在這裡</Text>
         ) : (
           <ScrollView
             horizontal
@@ -530,12 +537,21 @@ function Chip({ capture, onPress }: { capture: Capture; onPress: () => void }) {
     >
       <Glass radius={R.pill} style={styles.chip}>
         {/* 綠色半透明底＝學習者親手圈出來的那幾個字。從 top:1 開始，把 Glass 的
-            上緣高光留出來。 */}
-        <View pointerEvents="none" style={styles.chipTint} />
+            上緣高光留出來。
+
+            'saved' 不給——那個詞是 app 標的，他只是收下；綠底會讓「我圈的」與
+            「app 猜的」在首頁上長得一模一樣，而那條分界是整個產品的論點。 */}
+        {capture.strength !== 'saved' && (
+          <View pointerEvents="none" style={styles.chipTint} />
+        )}
         <View
           style={[
             styles.chipDot,
-            capture.selection_kind === 'grammar' ? styles.chipDotGrammar : styles.chipDotVocab,
+            capture.strength === 'saved'
+              ? styles.chipDotSaved
+              : capture.selection_kind === 'grammar'
+                ? styles.chipDotGrammar
+                : styles.chipDotVocab,
           ]}
         />
         <Text style={styles.chipText} numberOfLines={1}>
@@ -562,9 +578,9 @@ const MASTERED_MIN_INTERVAL_DAYS = 3;
  * 多次倒帶合併成一筆 capture。UI 文案寫「重聽」就好，但這個落差要記著，別拿它去
  * 對「今天 N 次重聽」那個數字。
  *
- * ⚠️ **框選來的 capture 不進這個漏斗**（見 inWeek 的第一道過濾）。這是全 app 最顯眼
- * 的訊號視覺化，而產品論點就是「這些數字是真的」——把沒發生過的重聽算進來，
- * 論點當場失效。
+ * ⚠️ **只有伴隨真實倒帶的兩級（weak / strong）進得了這個漏斗**（見 inWeek 的第一道
+ * 過濾，寫成白名單）。這是全 app 最顯眼的訊號視覺化，而產品論點就是「這些數字是
+ * 真的」——把沒發生過的重聽算進來，論點當場失效。
  *
  * ⚠️ **絕對不能改用 ReplayEvent 算。** lib/replay.ts 的事件從不寫進 store，只活在
  * App.tsx 的 useState，重開 app 就歸零——任何基於它的「本週」數字都會在冷啟動後變 0。
@@ -581,14 +597,18 @@ function computeWeekSignal(
   const to = todayStr(now);
 
   const inWeek = captures.filter((c) => {
-    // 框選（strength 'selected'）**整條漏斗都不算**。它不 seek、不 pause，是唯一
-    // 不伴隨播放位置變動的來源（ADR-0017），所以它背後的重聽次數是 0——一次都沒按
-    // ↺15、只圈了五個片語的人，環中央不該寫「5 重聽」。App.tsx:448 為同一個理由把
-    // 'select' 擋在 events 之外，這個漏斗只是把那條規則補齊。
+    // **白名單**：只有倒帶偵測出來的兩級進得了這個漏斗。
     //
-    // 只從 rewinds 扣掉不行：框選天生 confirmed，留在確認那一段會做出「確認 > 重聽」
-    // 的環，底下保證的層層包含關係就破了。框選自己有難點詞庫那一塊在呈現。
-    if (c.strength === 'selected') return false;
+    // 原本寫的是 `if (c.strength === 'selected') return false`，那是黑名單——
+    // 每加一級訊號就漏一次，而這是全 app 最顯眼的訊號視覺化：一個從沒按過 ↺15
+    // 的人，環中央會寫「N 重聽」，產品唯一的論點當場失效。白名單讓新增的級別
+    // 預設被排除，要放進來得有人明確寫上去。
+    //
+    // 'selected'（框選）與 'saved'（點了 app 標的詞）都不 seek、不動播放位置，
+    // 背後的重聽次數是 0。只從 rewinds 扣掉不行：兩者天生 confirmed，留在確認
+    // 那一段會做出「確認 > 重聽」的環，底下保證的層層包含關係就破了。它們自己
+    // 有難點詞庫那一塊在呈現。
+    if (c.strength !== 'weak' && c.strength !== 'strong') return false;
     // created_at 是 UTC ISO，一定要轉成**當地**日字串才對得上 srs.ts 的日界線；
     // 直接切字串會讓半夜的 capture 落到隔天。
     const day = toDateStr(new Date(c.created_at));
@@ -719,6 +739,8 @@ const styles = StyleSheet.create({
   chipDot: { width: 3, height: 3, borderRadius: 1.5 },
   chipDotVocab: { backgroundColor: C.accent },
   chipDotGrammar: { backgroundColor: C.primary },
+  /** 琥珀＝這個詞是 app 標出來的，他按了加入練習（不是他自己圈的）。 */
+  chipDotSaved: { backgroundColor: C.highlightInk },
   chipText: { ...TYPE.caption, color: C.text, fontWeight: '400' },
 
   // —— (f) ——

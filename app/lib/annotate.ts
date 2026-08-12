@@ -16,12 +16,25 @@
  *   - 不落地（見 `cache` 上的說明）
  * 它只是閱讀輔助：點一下高亮的詞，看到中文解釋，僅此而已。
  *
- * 反過來的資訊流則是允許的：`weakTypes` 把**學習者已確認**的 capture 統計回饋
- * 給模型，讓標註偏向他反覆卡住的難點類型。證據 → 推測可以，推測 → 證據不行。
+ * 反過來的資訊流則是允許的：`weakTypes` 把**學習者已確認、且背後有一次真的倒帶**
+ * 的 capture 統計回饋給模型，讓標註偏向他反覆卡住的難點類型。證據 → 推測可以，
+ * 推測 → 證據不行——所以 strength 'saved'（他收藏了這裡標出來的詞，沒有倒帶）
+ * 被擋在外面，否則這條線會繞回起點變成模型餵自己。
  */
 import { getCaptures } from './store';
 import { ensureSession, supabase } from './supabase';
-import { DiagnosisType, TranscriptSegment } from './types';
+import { CaptureStrength, DiagnosisType, TranscriptSegment } from './types';
+
+/**
+ * 這一級背後有沒有一次**真的發生過的倒帶**。只有有的才准回饋給模型
+ * （見 `weakTypesFromCaptures`）。
+ *
+ * 白名單而不是 `!== 'saved'`：types.ts:23 的規矩——以 strength 分岔一律明列吃哪
+ * 幾級，下一級新來源預設被排除，要納入得有人親手寫上去。
+ */
+function hasRewindEvidence(strength: CaptureStrength): boolean {
+  return strength === 'weak' || strength === 'strong' || strength === 'selected';
+}
 
 export interface Term {
   /** 該詞所在 segment 的 `segmentKey`（伺服器已驗證過真的出現在那句裡）。 */
@@ -331,6 +344,12 @@ function validateTerms(input: unknown): Term[] {
 function weakTypesFromCaptures(): DiagnosisType[] {
   const counts = new Map<DiagnosisType, number>();
   for (const c of getCaptures()) {
+    // ⚠️ status 濾不掉 'saved'：它**出生就是 confirmed**（lib/selection.ts
+    // commitSavedTerm），從沒經過任何確認。而它想學的那個詞正是這支檔案標出來的
+    // ——放它進來，迴圈就閉合成「模型標了什麼 → 他收藏 → 隔天練習寫回 diagnosis
+    // → 模型下次更愛標同一類」，也就是檔頭第 5–20 行禁止的推測→證據方向，而且
+    // 整條鏈上一次倒帶都沒有。所以在 status 之外再擋一次 strength。
+    if (!hasRewindEvidence(c.strength)) continue;
     if (c.status !== 'confirmed' && c.status !== 'practiced') continue;
     const type = c.diagnosis?.type;
     if (!type) continue;

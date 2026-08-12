@@ -423,7 +423,12 @@ export default function TranscriptScreen({
   /** 終點 token index，-1 = 只點了頭。 */
   const [selFocus, setSelFocus] = useState(-1);
   const [draft, setDraft] = useState<SelectionDraft | null>(null);
-  const [confirmed, setConfirmed] = useState(false);
+  /**
+   * 確認膠囊的**內容**，不只是開關。兩條送出路徑講的是不同的事（「加入練習」
+   * vs「這一句我切不出詞」），共用一句話會讓 segmentation 讀起來像沒生效——
+   * 使用者按下的是一顆從沒見過的按鈕，最需要的就是回饋確認他按對了。
+   */
+  const [confirmed, setConfirmed] = useState<string | null>(null);
 
   const listRef = useRef<FlatList<TranscriptSegment>>(null);
   const resumeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -793,9 +798,41 @@ export default function TranscriptScreen({
       durationSec,
     });
     exitSelection();
-    setConfirmed(true);
+    setConfirmed('已加入今天的練習');
     if (confirmTimer.current) clearTimeout(confirmTimer.current);
-    confirmTimer.current = setTimeout(() => setConfirmed(false), CONFIRM_PILL_MS);
+    confirmTimer.current = setTimeout(() => setConfirmed(null), CONFIRM_PILL_MS);
+  };
+
+  /**
+   * 第三個出口：**詞界切分失敗**。
+   *
+   * 框選的預設是「使用者知道自己漏聽的是哪個詞」，但那正是聽力最常見的斷點之一
+   * 不成立的地方（Field 2003）——他根本沒把那串聲音切成詞，自然框不出範圍。逼他
+   * 框只會得到亂框或放棄，兩種都是把唯一有價值的資料丟掉。
+   *
+   * 所以這一顆**只要有 anchor 就能按**（他點得出「大概在這附近」就夠了），送出的
+   * 是整句：斷點的位置本來就不在某個詞上。它仍然是 strength 'selected'——他倒帶、
+   * 開了稿、親手指了位置，三個條件一個不少，差別只在指的範圍是一整句。
+   *
+   * **絕不經過 `openSelectionSheet` / `SelectionSheet`**：那張紙問的是「詞還是
+   * 句型」，而這條路徑的整個前提就是他答不出來。
+   */
+  const handleSegmentation = () => {
+    if (!selSegment) return;
+    const whole = selSegment.text.trim();
+    if (whole === '') return; // 空句直接放棄，寧可什麼都不發生
+    commitSelection({
+      episodeId: episode.id,
+      segment: selSegment,
+      text: whole,
+      kind: 'segmentation',
+      positionSec: positionRef.current,
+      durationSec,
+    });
+    exitSelection();
+    setConfirmed('已記下：這一句我切不出詞');
+    if (confirmTimer.current) clearTimeout(confirmTimer.current);
+    confirmTimer.current = setTimeout(() => setConfirmed(null), CONFIRM_PILL_MS);
   };
 
   const handleClose = () => {
@@ -935,28 +972,47 @@ export default function TranscriptScreen({
             radius={R.lg}
             style={styles.actionBar}
           >
-            <View style={styles.actionRow}>
-              <Text style={styles.actionPreview} numberOfLines={1}>
-                {selText}
-              </Text>
-              <Pressable
-                onPress={exitSelection}
-                hitSlop={8}
-                style={({ pressed }) => [styles.actionCancel, pressed && styles.pressed]}
-                accessibilityRole="button"
-                accessibilityLabel="取消框選"
-              >
-                <Text style={styles.actionCancelText}>取消</Text>
-              </Pressable>
-              {/* 綠按鈕維持實色：accentInk 的 9.7:1 是對實色 accent 算的。 */}
-              <Pressable
-                onPress={openSelectionSheet}
-                style={({ pressed }) => [styles.actionAdd, pressed && styles.pressed]}
-                accessibilityRole="button"
-                accessibilityLabel="把圈起來的字加入難點"
-              >
-                <Text style={styles.actionAddText}>加入難點</Text>
-              </Pressable>
+            {/* 上列＝「你圈到什麼」，下列＝「拿它做什麼」。兩個出口並排在同一列，
+                是為了讓「我切不出詞」在他卡住的那一秒就與主按鈕同時被看見——
+                收進選單或多一層 sheet，等於只有本來就知道自己漏聽哪個詞的人
+                找得到它，而那正好是不需要這個出口的那群人。 */}
+            <View style={styles.actionBody}>
+              <View style={styles.actionRow}>
+                <Text style={styles.actionPreview} numberOfLines={1}>
+                  {selText}
+                </Text>
+                <Pressable
+                  onPress={exitSelection}
+                  hitSlop={8}
+                  style={({ pressed }) => [styles.actionCancel, pressed && styles.pressed]}
+                  accessibilityRole="button"
+                  accessibilityLabel="取消框選"
+                >
+                  <Text style={styles.actionCancelText}>取消</Text>
+                </Pressable>
+              </View>
+
+              <View style={styles.actionRowExits}>
+                <Pressable
+                  onPress={handleSegmentation}
+                  style={({ pressed }) => [styles.actionSeg, pressed && styles.pressed]}
+                  accessibilityRole="button"
+                  accessibilityLabel="我聽不出這裡有幾個字，把整句加入練習"
+                >
+                  <Text style={styles.actionSegText} numberOfLines={1}>
+                    我聽不出這裡有幾個字
+                  </Text>
+                </Pressable>
+                {/* 綠按鈕維持實色：accentInk 的 9.7:1 是對實色 accent 算的。 */}
+                <Pressable
+                  onPress={openSelectionSheet}
+                  style={({ pressed }) => [styles.actionAdd, pressed && styles.pressed]}
+                  accessibilityRole="button"
+                  accessibilityLabel="把圈起來的字加入難點"
+                >
+                  <Text style={styles.actionAddText}>加入難點</Text>
+                </Pressable>
+              </View>
             </View>
           </Glass>
         )}
@@ -964,7 +1020,7 @@ export default function TranscriptScreen({
         {confirmed && (
           <View pointerEvents="none" style={styles.pillWrap}>
             <View style={[styles.pill, styles.confirmPill]}>
-              <Text style={styles.pillText}>已加入今天的練習</Text>
+              <Text style={styles.pillText}>{confirmed}</Text>
             </View>
           </View>
         )}
@@ -1197,7 +1253,12 @@ const styles = StyleSheet.create({
   actionBar: { position: 'absolute', left: SP(4), right: SP(4), bottom: SP(3) },
   // 排版放在內層：elevated 的 Glass 會把 style 交給外層投影用的 View，
   // flexDirection 寫在那上面排不到內容。
-  actionRow: { flexDirection: 'row', alignItems: 'center', gap: SP(2), padding: SP(2) },
+  // 三顆按鈕塞不進 375pt 的一列，所以拆兩列：上列是「你圈到什麼」，
+  // 下列是「拿它做什麼」。padding 從 actionRow 移到外層 actionBody，
+  // 免得兩列各補一次內距、面板上下不對稱。
+  actionBody: { padding: SP(2), gap: SP(2) },
+  actionRow: { flexDirection: 'row', alignItems: 'center', gap: SP(2) },
+  actionRowExits: { flexDirection: 'row', alignItems: 'center', gap: SP(2) },
   actionPreview: {
     flex: 1,
     ...TYPE.caption,
@@ -1217,6 +1278,20 @@ const styles = StyleSheet.create({
     paddingVertical: SP(2),
   },
   actionAddText: { ...TYPE.caption, color: C.accentInk, fontWeight: '700' },
+  /**
+   * 「我聽不出這裡有幾個字」。**不給實色綠**：綠是那條路徑的主按鈕賺到的，
+   * 這一顆是同等合法但較少走的出口，用玻璃填色排在同一列即可。給它 flex:1
+   * 是因為文案最長，讓它吃掉剩餘寬度、「加入難點」維持內容寬。
+   */
+  actionSeg: {
+    flex: 1,
+    backgroundColor: GLASS.fillStrong,
+    borderRadius: R.md,
+    paddingHorizontal: SP(2),
+    paddingVertical: SP(2),
+    alignItems: 'center',
+  },
+  actionSegText: { ...TYPE.caption, color: C.text },
 
   transport: {
     paddingHorizontal: SP(5),

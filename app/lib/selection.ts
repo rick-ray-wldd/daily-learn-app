@@ -1,17 +1,21 @@
 /**
- * 框選管線 —— 逐字稿裡親手圈出的那幾個字 → 一筆 `strength: 'selected'` 的 capture。
+ * 使用者親手指出來的難點 → capture。兩個入口，強度天差地遠：
  *
- * **框選不是新的輸入來源**，是既有訊號的最強一級（weak → strong → selected，
- * migration 006）：學習者不只倒帶、不只跑去看字，還親手指出是哪幾個字。所以
- * ADR-0003 的單一 replay-event 管線不變，只是多一種 `trigger_source: 'select'`。
+ * - `commitSelection`：框選 → `strength: 'selected'`。**不是新的輸入來源**，是既有
+ *   訊號的最強一級（saved → weak → strong → selected，migration 006）：學習者不只
+ *   倒帶、不只跑去看字，還親手指出是哪幾個字。所以 ADR-0003 的單一 replay-event
+ *   管線不變，只是多一種 `trigger_source: 'select'`。它也承接 `'segmentation'`
+ *   （「我聽不出這裡有幾個字」）——那仍然是倒帶＋開稿＋親手指出，只是指的是整句。
+ * - `commitSavedTerm`：點了 app 標的詞 → `strength: 'saved'`，最弱的一級。它背後
+ *   **沒有任何倒帶**，所以是唯一一條不建 replay event 的路徑（見該函式的禁令 4）。
  *
- * 這支檔案刻意分成「兩個純函式 + 一個有副作用的入口」：`tokenize` /
- * `sliceSelection` 在每一次觸控都會被呼叫，它們必須能在沒有 store、沒有網路、
- * 沒有 React 的情況下單獨驗證；只有 `commitSelection` 會寫東西。
+ * 這支檔案刻意分成「兩個純函式 + 有副作用的入口」：`tokenize` / `sliceSelection`
+ * 在每一次觸控都會被呼叫，它們必須能在沒有 store、沒有網路、沒有 React 的情況下
+ * 單獨驗證；只有 `commitSelection` / `commitSavedTerm` 會寫東西。
  */
 import { uuidv4 } from './captureEngine';
 import { makeReplayEvent, syncReplayEvent } from './replay';
-import { upsertCapture } from './store';
+import { getCaptures, upsertCapture } from './store';
 import { supabase } from './supabase';
 import { Capture, SelectionKind, TranscriptSegment } from './types';
 
@@ -164,6 +168,106 @@ export function commitSelection(input: SelectionInput): Capture {
   return capture;
 }
 
+export interface SavedTermInput {
+  episodeId: string;
+  /** 那個詞所在的整句。呼叫端反查不到就不要呼叫，不要自己湊一個。 */
+  segment: TranscriptSegment;
+  /** app 標的那個詞本身（`Term.term`），已 trim 且非空。 */
+  text: string;
+  /** 單集長度，用來夾住 context_end；未知傳 0。 */
+  durationSec: number;
+}
+
+/**
+ * 同一集、同一句、同一個詞的 saved capture 是不是已經存在。
+ *
+ * 三個欄位一起比對而不是只比 `selection_text`：同一個詞在一集裡可能出現在好幾句，
+ * 每一句都是不同的練習素材（上下文不同），只比詞會把第二句誤判成重複。
+ */
+function findSavedTerm(
+  episodeId: string,
+  segment: TranscriptSegment,
+  text: string,
+): Capture | undefined {
+  const start = round1(segment.start);
+  return getCaptures().find(
+    (c) =>
+      c.strength === 'saved' &&
+      c.episode_id === episodeId &&
+      c.window_start === start &&
+      c.selection_text === text,
+  );
+}
+
+/**
+ * 這個詞已經加進練習了嗎（同一集、同一句、同一個詞）。
+ *
+ * 存在的理由是 `commitSelection` 這條管線**沒有任何冪等鍵**（每次都 uuidv4），
+ * 而 TermSheet 的按鈕只要一次點擊——同一個詞點兩次就是兩筆一模一樣的 capture，
+ * 隔天在練習佇列裡連續出現兩張同樣的卡。UI 用它把按鈕切成「已加入」。
+ */
+export function isTermSaved(
+  episodeId: string,
+  segment: TranscriptSegment,
+  text: string,
+): boolean {
+  return findSavedTerm(episodeId, segment, text) !== undefined;
+}
+
+/**
+ * 標註詞 →「我想學」的最弱訊號（strength 'saved'）。
+ *
+ * 與 `commitSelection` 的三條禁令之外，這裡多兩條，違反就是在資料庫裡捏造事實：
+ *
+ * 4. **絕不建 replay event。** 他沒有倒帶。`commitSelection` 無條件送出的那一筆
+ *    trigger_source 'select' 在這條路徑上是一次從未發生的重聽——本地完全看不出來
+ *    （UI 照跳、store 照寫），只有去撈 replay_events 才會發現。
+ * 5. **絕不寫 selection_kind。** 「詞還是句型」是 evaluation，而 TermSheet 的
+ *    設計底線是聽的當下不要求判斷（Involvement Load 的那一格留到隔天的練習卡）。
+ *
+ * status 沿用 'confirmed' 不是風格選擇：`captureEngine.ts:118` 的合併候選只挑
+ * 'pending'，一旦用 pending 建立，之後一次重疊的倒帶就會把它併掉並硬寫成
+ * 'strong'，同時把「那一個詞」的精確窗口 union 成模糊的十五秒。
+ *
+ * 冪等：同一集同一句同一個詞已經有一筆時，原樣回傳既有的那一筆、不寫第二次。
+ */
+export function commitSavedTerm(input: SavedTermInput): Capture {
+  const { episodeId, segment, text, durationSec } = input;
+
+  const existing = findSavedTerm(episodeId, segment, text);
+  // 命中就整筆原樣回傳：連 upsertCapture 都不呼叫。重寫一次會把 created_at 以外
+  // 的東西維持原狀卻多一次遠端 upsert，而那筆遠端寫入唯一可能造成的差異是把
+  // 練習頁已經填好的 diagnosis 洗掉。
+  if (existing) return existing;
+
+  const capture: Capture = {
+    id: uuidv4(),
+    episode_id: episodeId,
+    // 與框選同一套窗口：鎖的是**這一句**，不是 [T-15, T]。那個詞的練習素材就是
+    // 它所在的句子，換成十五秒窗口等於把他點的那一個詞泡回一整段話裡。
+    window_start: round1(segment.start),
+    window_end: round1(segment.end),
+    context_start: round1(Math.max(0, segment.start - CONTEXT_PAD_SECONDS)),
+    context_end: round1(
+      durationSec > 0
+        ? Math.min(segment.end + CONTEXT_PAD_SECONDS, durationSec)
+        : segment.end + CONTEXT_PAD_SECONDS,
+    ),
+    strength: 'saved',
+    status: 'confirmed',
+    transcript_text: segment.text,
+    selection_text: text,
+    // selection_kind 刻意不設，見上方禁令 5。
+    // diagnosis 一樣留空：這裡不呼叫任何 LLM。
+    created_at: new Date().toISOString(),
+  };
+
+  upsertCapture(capture);
+  void syncSelectionColumns(capture);
+  // 到此為止。沒有 makeReplayEvent、沒有 syncReplayEvent——他沒有倒帶。
+  return capture;
+}
+
 /**
  * 第二次遠端 upsert，只為了補上 `selection_text` / `selection_kind`。
  *
@@ -174,15 +278,18 @@ export function commitSelection(input: SelectionInput): Capture {
  *
  * ⚠️ **migration 006 沒套用到線上時，遠端不是「少兩個欄位」，是一筆都沒有。**
  * 這裡原本寫的是「缺欄位時只有這一次會失敗，capture 本體早已由 syncCapture 寫進去」
- * ——那個前提不成立。006 同時把 `strength` 的合法值從 ('weak','strong') 擴成三態，
- * 而框選送的是 `'selected'`，所以在 006 之前三條遠端路徑**全部**被擋：
+ * ——那個前提不成立。006 同時把 `strength` 的合法值從 ('weak','strong') 擴成四態
+ * （`'saved'` / `'selected'` 都是這一版才進 CHECK 的），並把 `selection_kind` 放寬到
+ * 含 `'segmentation'`，所以在 006 之前這三種新來源的遠端路徑**全部**被擋：
  *
  *   1. `store.ts:syncCapture` 撞 `captures_strength_check`（23514）→ 本體沒寫進去
- *   2. 這一支撞同一個 check，外加兩個欄位不存在（42703）
+ *   2. 這一支撞同一個 check、或撞 `captures_selection_kind_check`（segmentation），
+ *      外加兩個欄位不存在（42703）
  *   3. `syncReplayEvent` 帶 `'select'` 撞 `replay_events_trigger_source_check`
+ *      （只有框選有這一條；`commitSavedTerm` 不建事件，所以它只被 1、2 擋）
  *
- * 三條都只 `console.warn`，UI 照樣跳「已加入今天的練習」，本地 store 也照常運作，
- * 所以沒有人會發現伺服器端一筆框選都沒有。本地優先仍然成立（ADR-0004），但
+ * 全部都只 `console.warn`，UI 照樣跳「已加入今天的練習」，本地 store 也照常運作，
+ * 所以沒有人會發現伺服器端一筆都沒有。本地優先仍然成立（ADR-0004），但
  * **指標不能從線上撈**——這是 OTA 六天迭代的必然風險：JS bundle 一定比 SQL 早到。
  *
  * 這裡刻意**不做降級重寫**（偵測失敗後把 strength 改成 'strong'、trigger_source
@@ -220,9 +327,11 @@ async function syncSelectionColumns(capture: Capture): Promise<void> {
       // 而且同一批被擋的還有 capture 本體與 replay event，所以要講清楚後果。
       if (error.code === '42703' || error.code === '23514') {
         console.warn(
-          '[selection] 線上 schema 還沒套用 migration 006：這一筆框選的 capture 本體、' +
-            'selection 欄位與 replay event 在伺服器端會全部遺失（本地 store 不受影響）。' +
-            '在套用 006 之前，指標只能以本地為準。',
+          '[selection] 線上 schema 還沒套用 migration 006：這一筆的 capture 本體、' +
+            'selection 欄位與（框選才有的）replay event 在伺服器端會全部遺失' +
+            '（本地 store 不受影響）。006 這一版新增了 strength ' +
+            "'saved' 與 selection_kind 'segmentation'，線上沒套用之前這兩種新來源" +
+            '在伺服器端一筆都不會有。在套用 006 之前，指標只能以本地為準。',
         );
       } else {
         console.warn('[selection] capture sync failed:', error.message);

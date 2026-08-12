@@ -30,11 +30,13 @@ import PodcastBrowser from './components/PodcastBrowser';
 import TermSheet from './components/TermSheet';
 import TranscriptScreen from './components/TranscriptScreen';
 import UpdateStatus from './components/UpdateStatus';
-import { Term } from './lib/annotate';
+import { segmentKey, Term } from './lib/annotate';
 import { DEMO_EPISODES, Episode } from './lib/episodes';
 import { ensureSession, isSupabaseConfigured } from './lib/supabase';
 import { makeReplayEvent, ReplayEvent, syncReplayEvent, TriggerSource } from './lib/replay';
 import { ingestReplayEvent, noteRateChange, noteTranscriptOpen } from './lib/captureEngine';
+import { commitSavedTerm, isTermSaved } from './lib/selection';
+import { getSegments } from './lib/transcript';
 import { getCaptures, getSrsItems, initStore, rememberEpisode, subscribe } from './lib/store';
 import { isDue, toDateStr, todayStr } from './lib/srs';
 import { syncDailyReminder } from './lib/notifications';
@@ -259,7 +261,15 @@ export default function App() {
       const srsItems = getSrsItems();
       const srsIds = new Set(srsItems.map((i) => i.capture_id));
       // 上次按了「真的沒聽懂」但沒評分就離開的卡（confirmed 且無 SRS item），
-      // 以及昨天以前框選的。今天的兩者都歸「搶先練」，不算正式佇列。
+      // 以及昨天以前框選的、以及昨天以前**加入練習的標註詞**（strength 'saved'，
+      // 一出生就是 confirmed，走的是同一桶）。今天的三者都歸「搶先練」，不算正式
+      // 佇列。
+      //
+      // saved **要**進正式佇列，理由與框選同一條：它是「他想學什麼」，而練習頁的
+      // 職責就是把想學的東西隔天送回他面前；排除它等於做了一顆按了不會發生任何事
+      // 的按鈕。它與訊號指標的分界（那裡一律排除 saved）不衝突——佇列問的是「練
+      // 什麼」，指標問的是「他哪裡聽不懂」，兩個問題本來就不同。它在佇列裡排最後
+      // （Practice.tsx 的 STRENGTH_RANK: saved = 3），真正有理解斷點的卡先練。
       const orphanConfirmed = captures.filter(
         (c) =>
           c.status === 'confirmed' &&
@@ -455,6 +465,56 @@ export default function App() {
     noteTranscriptOpen(episode.id);
   };
 
+  /** 這次生命週期內剛加入的詞。store 沒有「這個詞存了沒」的訂閱，而按鈕必須
+   *  在同一次開啟裡就翻面；跨重啟那一半由 isTermSaved 查 store 補上。 */
+  const [justSaved, setJustSaved] = useState<ReadonlySet<string>>(() => new Set());
+  const termKey = (t: Term) => `${episode.id}|${t.segment_id}|${t.term}`;
+
+  /**
+   * 標註詞 → 它所在的那一句。
+   *
+   * `Term.segment_id` 是 `segmentKey`（start×10），只還原得出 start；capture 的
+   * 窗口還要 end 與整句文字，所以一定要回 transcript 快取拿真正的 segment。
+   * **找不到就是 null，絕不拿 segment_id/10 猜一個 end 湊窗口**——那是在資料庫
+   * 裡捏造一段從沒發生過的時間範圍。窗口重轉會讓 Whisper 斷句挪動零點幾秒、
+   * segmentKey 跟著改變，反查 miss 是正常情形（那時按鈕不出現）。
+   */
+  const activeTermSegment = useMemo(
+    () =>
+      activeTerm
+        ? getSegments(episode.id).find((s) => segmentKey(s) === activeTerm.segment_id) ?? null
+        : null,
+    [activeTerm, episode.id],
+  );
+
+  const activeTermSaved =
+    activeTerm !== null &&
+    (justSaved.has(termKey(activeTerm)) ||
+      (activeTermSegment !== null &&
+        isTermSaved(episode.id, activeTermSegment, activeTerm.term)));
+
+  /**
+   * 最弱的一級訊號：他沒有倒帶，只是點了 app 標的詞說想學。
+   * 不 seek、不 pause、不建 replay event——播放位置紋風不動，所以也踩不到
+   * ADR-0016 的外部倒帶推斷。
+   */
+  const saveActiveTerm = () => {
+    if (!activeTerm || !activeTermSegment) return;
+    commitSavedTerm({
+      episodeId: episode.id,
+      segment: activeTermSegment,
+      text: activeTerm.term,
+      durationSec: duration,
+    });
+    setJustSaved((prev) => new Set(prev).add(termKey(activeTerm)));
+  };
+
+  // 換集：sheet 開著時換集再按加入練習，capture 會被記到新的一集上、時間戳指向
+  // 一段根本不存在那句話的音檔——那種錯誤在資料裡看起來完全合法，抓不出來。
+  useEffect(() => {
+    setActiveTerm(null);
+  }, [episode.id]);
+
   /**
    * NowPlaying 把它印成「今天 N 次重聽」，所以這裡只能裝**重聽**。
    *
@@ -462,6 +522,13 @@ export default function App() {
    * 本來就不是重聽（selection.ts 的三條禁令）。把它算進來只會讓這個數字說謊，
    * 而這個數字正是整個產品的論點。它自己的遠端事件由 commitSelection 直送
    * syncReplayEvent，不經過外殼。
+   *
+   * strength 'saved'（點了標註詞說想學）同理不得進來——而且它連 replay event 都
+   * 沒有：`commitSavedTerm` 是全 app 唯一一條不建事件的寫入路徑。所以這裡不需要
+   * 加任何過濾：`events` 只由 logReplayEvent 灌，而上面的 saveActiveTerm 從頭到尾
+   * 沒碰它。這是**驗證過的**，不是假設——setEvents 全檔只出現在 logReplayEvent
+   * 內部，而 logReplayEvent 的呼叫端只有 back15、onSeekFromUi(isRewind)、與外部
+   * 倒帶偵測那三處。
    */
   const todayCount = useMemo(() => {
     const today = new Date().toDateString();
@@ -616,7 +683,13 @@ export default function App() {
       )}
 
       {/* Modal 常駐（TermSheet 內部靠 visible 切換，重建原生 view 會掉第一幀）。 */}
-      <TermSheet term={activeTerm} onClose={() => setActiveTerm(null)} />
+      <TermSheet
+        term={activeTerm}
+        canSave={activeTermSegment !== null}
+        saved={activeTermSaved}
+        onSave={saveActiveTerm}
+        onClose={() => setActiveTerm(null)}
+      />
     </View>
   );
 }

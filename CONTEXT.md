@@ -56,50 +56,93 @@ distinguished only by `trigger_source` (`screen` | `headphone` | `lockscreen` |
 `select`). The atom the whole product is built on. `select` is the one source that
 does **not** accompany a playback-position change — it is an **explicit selection**,
 recorded on the same pipeline so nothing downstream has to know the difference.
-_Avoid_: "rewind click", "skip".
+A **saved term** creates *no* replay event at all (there was no rewind to record;
+writing one would fabricate a replay that never happened). _Avoid_: "rewind click",
+"skip".
 
 **Rewind signal** — the *interpretation* of replay events as a comprehension gap.
 A replay event is raw; the rewind signal is what we infer from it. Not every replay
 event is a genuine gap (see **Signal strength**).
 
 **Signal strength** — the graded confidence that a capture means "didn't understand".
-**Three-valued, not two** — every `=== 'strong'` binary must account for the third
-state ([ADR-0017](docs/adr/0017-explicit-selection-signal.md)):
+**Four-valued, not two** — every `=== 'strong'` binary must account for the other
+three ([ADR-0017](docs/adr/0017-explicit-selection-signal.md)):
 
 | | | |
 | --- | --- | --- |
+| `saved` | — | the learner tapped an **annotation** and said "I want to learn this". **No rewind, no comprehension breakdown.** The weakest level |
 | `weak` | ★ | a single rewind then normal progress; possibly just distraction |
 | `strong` | ★★★ | same-segment rewind ×2, or rewind-then-slow, or rewind-then-open-transcript |
-| `selected` | ★★★★ | rewind + transcript + the learner **pointed at the words** — no inference left |
+| `selected` | ★★★★ | rewind + transcript + the learner **pointed at it** — no inference left |
 
 `weak` / `strong` are defined in `docs/01-product/signal-design.md §2`; `selected` is
-produced only by **explicit selection**.
+produced only by **explicit selection**; `saved` only by a **saved term**.
+
+`saved` differs from the other three *in kind, not in degree*: the other three each
+have one real rewind behind them, `saved` has one tap. So it may enter the practice
+queue (which asks "what does he want to learn") but **never a signal metric** (which
+asks "where did comprehension break") — see the `confirm rate` note below.
+
+> **Branch on `strength` with a whitelist, never `!== 'x'`.** A blacklist makes every
+> newly added level count *by default*, and this repo has already made that exact
+> mistake twice (`selected` leaked into `confirm rate`; then `saved` leaked through the
+> `!== 'selected'` patch written to fix it). Whitelists make the next level opt-in.
 
 **Explicit selection（框選）** — the learner tapping the head and the tail of a word
 range in the transcript to say "*this* is what I didn't get". Produces a capture with
 `strength: 'selected'`, `status: 'confirmed'` (they just answered the confirm question
 themselves), a window equal to **that sentence**'s `segment.start/end` rather than the
 `[T-15, T]` **capture window**, the chosen words in `selection_text`, and the learner's
-own intent in `selection_kind` (`vocab` | `grammar`). `selection_kind` is deliberately
-**not** the six **difficulty types**: those are the app's judgment, this is the
-learner's — a mismatch between them is data, not an error. Cross-sentence selection is
-not supported. _Avoid_: "highlight"; and never "annotation" — that word means the
-opposite (see next entry).
+own intent in `selection_kind` (`vocab` | `grammar` | `segmentation`). `selection_kind`
+is deliberately **not** the six **difficulty types**: those are the app's judgment, this
+is the learner's — a mismatch between them is data, not an error. Cross-sentence
+selection is not supported. _Avoid_: "highlight"; and never "annotation" — that word
+means the opposite (see **Annotation** below).
+
+**Segmentation exit（我聽不出這裡有幾個字）** — the third button on the selection
+action bar, for when the learner cannot frame a range **because they never split the
+sound into words** (lexical segmentation failure — Field 2003; the most common
+listening breakdown that framing silently assumes away). It needs only the **anchor**
+tap, submits the **whole sentence** as `selection_text`, and carries
+`selection_kind: 'segmentation'`. Still `strength: 'selected'` — they rewound, opened
+the transcript, and pointed; only the *granularity* of what they pointed at differs.
+It never goes through the vocab/grammar sheet, because being unable to answer that
+question is the entire premise. **The one datum no competing app collects**: where a
+learner cannot even find the word boundaries. Downstream must read `selection_kind`
+before rendering — "you circled these words" is a lie on this row, and the whole
+sentence must not be printed on the practice card (it *is* the answer). _Avoid_:
+"I don't know", "unclear" — the term names a specific listening failure.
+
+**Saved term（標記想學）** — the learner tapping **＋ 加入練習** on an **annotation**'s
+`TermSheet`. Produces a capture with `strength: 'saved'`, `status: 'confirmed'`, the
+sentence's window, the term in `selection_text`, and **no** `selection_kind` (asking
+"word or pattern?" is evaluation, and the sheet's floor is *never make the listener
+judge anything mid-listen*). It is the **only write path in the app that creates no
+replay event** — `saved` rows have no row in `replay_events`, by definition, not by
+data loss. Idempotent on (episode, sentence, term). The retention argument: reading
+an annotation and closing it is the lowest-retention condition in the Involvement
+Load Hypothesis; the evaluation load is deferred to the next-day practice card, which
+is where it belongs. _Avoid_: "bookmark", "favourite", "highlight".
 
 **Annotation（難點標註）** — the terms the *app* marks up in the transcript as
 probably-hard. It is a **guess**, which is why it is amber and explicit selection is
 green: green means the learner acted, amber means the app is guessing. The two never
 colour the same word — the moment selection mode opens, annotations stand down.
 Losing that line would erase the only visual distinction between evidence and
-inference, and inference being wrong is the normal case. _Avoid_: using "annotation"
-for anything the learner did.
+inference, and inference being wrong is the normal case. An annotation is the one
+guess the learner can promote into a capture (**saved term**) — which is exactly why
+`saved` is fenced out of `weakTypesFromCaptures`: guess → learner saves → guess
+influences the next guess is a closed loop with no rewind anywhere in it, and evidence
+→ inference is the only direction allowed. _Avoid_: using "annotation" for anything
+the learner did.
 
 **Capture** — a graded, windowed unit of difficulty produced from one or more replay
 events: an episode-relative difficulty window `[window_start, window_end]`, a padded
 `[context_start, context_end]` replay window, a `strength`, and a `status`. Captures
 from **explicit selection** additionally carry `selection_text` / `selection_kind`;
-everything downstream (diagnosis, SRS, daily session) treats them identically, which
-is the whole point of not giving selection its own table. The central domain object
+a **saved term** carries `selection_text` with no `selection_kind`. Everything
+downstream (diagnosis, SRS, daily session) treats them identically, which is the whole
+point of not giving these entry points their own tables. The central domain object
 (`Capture` in `app/lib/types.ts`). _Avoid_: "clip", "snip", "bookmark".
 
 **Learning focus（學習焦點）** — the single word, phrase, sound pattern, grammatical
@@ -124,11 +167,12 @@ the correct learning focus. `confirm rate` measures only the first part; diagnos
 usefulness is evaluated separately. _Avoid_: using "confirm rate" for end-to-end
 accuracy.
 
-> **`selected` captures are excluded from `confirm rate`, numerator and denominator.**
-> They are born `confirmed`, so counting them turns "how accurate is rewind detection"
-> into "how much does this user use selection". Totals and difficulty-type
-> distribution still include them — they are genuine difficulties; only the
-> *detection-accuracy* question must not be answered by them.
+> **`confirm rate`'s population is the whitelist `weak` + `strong` — nothing else.**
+> Both `selected` and `saved` captures are born `confirmed`, so counting either turns
+> "how accurate is rewind detection" into "how much does this user use that feature".
+> Totals and difficulty-type distribution include `selected` (a genuine difficulty)
+> but exclude `saved` — otherwise "difficulties captured" quietly becomes "terms
+> collected", and that number is the one we quote externally.
 
 **Capture status** — the state machine axis: `pending` → `confirmed` | `dismissed`,
 and `practiced`. `pending` captures surface in tomorrow's session; the learner
@@ -182,8 +226,10 @@ pending capture is triaged, every in-scope strong capture is practiced, and all 
 reviews are done — weak captures need only triage. Captures made *today* — rewound
 **or selected** — form a separate 搶先 (get-ahead) tier that does not count toward
 completion; the date filter applies to both, or same-day selections (which arrive
-already `confirmed`) would walk straight into the official queue. The product's
-north-star surface; the bound and cap live in
+already `confirmed`) would walk straight into the official queue. **Saved terms** join
+the same queue — it answers "what to practise", not "where comprehension broke" — but
+sort **last** (`STRENGTH_RANK`: `saved` = 3), so a ten-minute session spends itself on
+real breakdowns first. The product's north-star surface; the bound and cap live in
 [ADR-0011](docs/adr/0011-honest-bounded-session.md). _Avoid_: "lesson".
 
 **SRS item** — a simplified SM-2 spaced-repetition record, one per confirmed capture
@@ -235,11 +281,14 @@ speccing tests — the fewer seams the better):
   Whisper). Interface: `transcribe(episode)`. Adapter-swappable.
 - **`diagnose.ts`** — the async seam over Claude. Interface: `diagnose(capture)` →
   `Diagnosis | null`. Strict-schema tool call ⇒ guaranteed-parseable output.
-- **`selection.ts`** — **explicit selection** → one `selected` capture + one `select`
-  replay event. Deliberately split into two pure functions (`tokenize`,
+- **`selection.ts`** — everything the learner points at by hand. `commitSelection`:
+  **explicit selection** (incl. the **segmentation exit**) → one `selected` capture +
+  one `select` replay event. `commitSavedTerm`: a **saved term** → one `saved` capture
+  and **no** event. Deliberately split into two pure functions (`tokenize`,
   `sliceSelection` — called on every touch, verifiable with no store/network/React)
-  and one effectful entry point (`commitSelection`). Good unit-test target alongside
-  `captureEngine`.
+  and the effectful entry points. Good unit-test target alongside `captureEngine`;
+  `commitSavedTerm`'s idempotence on (episode, sentence, term) is the first test to
+  write, since the button that calls it is a single tap.
 - **`supabase.ts`** — the sync adapter. `null` in local-only mode. Nothing may block
   on it.
 
@@ -265,12 +314,20 @@ later — do not pre-emptively move; decide with tests):
 - **"Which captures are eligible today" is implemented twice** — `screens/Practice.tsx`
   (the queue) and `App.tsx:computeBadge` (the tab badge). They have already drifted
   once over the same-day filter. Whichever refactor touches this should collapse them
-  into one function in `store.ts` or `stats.ts`.
+  into one function in `store.ts` or `stats.ts`. **This is now blocking**: the queue
+  has no cap on **saved terms**, and framing costs a long-press plus two taps while
+  ＋ 加入練習 costs *one* — one episode can mint ~20 full-flow cards for tomorrow.
+  A real N=5 split must change both sides together, or it reproduces the "badge says
+  3, screen is empty" bug.
 - ⚠️ **`app/supabase/migrations/006_explicit_selection_signal.sql` is not applied to
   the hosted project** (verified: `42703` on `captures.selection_text`, and both CHECK
-  constraints still hold the old value sets). Selection therefore syncs *nothing* —
-  local-first hides it from the user, but server-side selection data is empty until
-  006 runs. See ADR-0017's Consequences.
+  constraints still hold the old value sets). The file was **edited in place** rather
+  than superseded by a 007, because it has never run anywhere — see ADR-0017's
+  Amendment §4 for the rule (has this file run? yes → append only; no → edit in place).
+  All three hand-pointed sources therefore sync *nothing*: `saved` / `selected` hit
+  `captures_strength_check`, `segmentation` hits `captures_selection_kind_check`, and
+  both new columns are missing. Local-first hides it from the user; server-side these
+  rows do not exist until 006 runs.
 - Whisper/Claude live client-side today; **ADR-0008** already commits to moving them
   behind Supabase Edge Functions (W3). That refactor is the first big `implement` job.
 - No test suite yet. `captureEngine` + `srs` are pure and should get the first tests

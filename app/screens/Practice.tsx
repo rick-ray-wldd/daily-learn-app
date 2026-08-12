@@ -1,7 +1,8 @@
 /**
  * PracticeScreen — 每日練習（mvp-spec.md P0「Daily session」）。
  *
- * Queue = 所有 pending captures（selected → strong → weak）＋ 到期的 SRS 複習項目。
+ * Queue = 所有 pending captures（selected → strong → weak → saved）＋ 到期的 SRS
+ * 複習項目。排序就是證據強度由強到弱：練不完時該先拿到的是他真的卡住的地方。
  * 每張卡的流程（signal-design.md §3：把雜訊過濾變成複習的第一步）：
  *   a. 重聽 context 窗口（1x / 0.7x，到 context_end 自動停）——**永遠可按**
  *   b. 確認：「真的沒聽懂」→ confirmed／「只是分心」→ dismissed（雜訊標註）
@@ -103,23 +104,92 @@ type RevealStage = 'clue' | 'hint' | 'full';
  * 排序權重。**三態不能再用二分法**：`selected`（親手圈出）是最強的一級，
  * 用 `a.strength === 'strong' ? -1 : 1` 會把它跟 weak 掃進同一個 else，
  * 最有把握的那張卡反而排到最後面。
+ *
+ * `saved` 排最後不是「比較不重要」，是**證據等級最低**：另外三級背後都有一次
+ * 真的發生過的倒帶，它只有一次點擊。十分鐘的 session 若只練得完前幾張，該先
+ * 拿到的是他真的卡住的地方，而不是他順手收藏的詞。
  */
 const STRENGTH_RANK: Record<CaptureStrength, number> = {
   selected: 0,
   strong: 1,
   weak: 2,
+  saved: 3,
 };
 
-/** 徽章文案。selected 不寫星等——它不是「更強的猜測」，是學習者自己講的。 */
+/**
+ * 徽章文案。selected 不寫星等——它不是「更強的猜測」，是學習者自己講的。
+ * `saved` 同理**更不能給星等**：★ 是倒帶強度的刻度，而它連一次倒帶都沒有，
+ * 給它半顆星等於宣稱「這裡有一個很弱的理解斷點」——那是一句假話。它的來歷是
+ * 「他自己說想學」，所以文案講的是那個動作。
+ */
 const STRENGTH_LABEL: Record<CaptureStrength, string> = {
   selected: '✍ 親手圈出',
   strong: '★★★ 強訊號',
   weak: '★ 弱訊號',
+  saved: '＋ 你標記想學',
 };
 
-/** weak 以外都算「他不只是滑過去」，session 統計與排序都走這條線。 */
+/**
+ * 徽章文字。**strength 不足以決定它**：segmentation 也是 'selected'，但「親手圈出」
+ * 描述的是一個他明講自己做不到的動作（他說的是「我切不出這裡有幾個字」）。同一張
+ * 卡上這行字與下方的「你說這裡切不出有幾個字」會當場互相打臉。
+ */
+function strengthBadge(capture: Capture): string {
+  if (capture.selection_kind === 'segmentation') return '✍ 你指了這一句';
+  return STRENGTH_LABEL[capture.strength];
+}
+
+/**
+ * 完成畫面的計數桶。**三個，不是兩個**：「弱訊號」在這個 app 裡有精確意義
+ * （＝倒帶了一次，見 STRENGTH_LABEL.weak 與 signalOrigin），把 'saved' 用
+ * `isStrongSignal(...) ? 強 : 弱` 掃進去，等於在完成畫面與 practice log 裡
+ * 宣稱一批從沒發生過的倒帶——與 confirm rate 那一格是同一個錯誤，只是換成
+ * helper 拼字。用 switch + never 而不是第三個 boolean helper：新增一級 strength
+ * 時，這裡會在編譯期爆掉，而不是靜靜掉進某個桶。
+ */
+type SignalBucket = 'strong' | 'weak' | 'saved';
+
+function signalBucket(strength: CaptureStrength): SignalBucket {
+  switch (strength) {
+    case 'selected':
+    case 'strong':
+      return 'strong';
+    case 'weak':
+      return 'weak';
+    case 'saved':
+      return 'saved';
+    default: {
+      const never: never = strength;
+      return never;
+    }
+  }
+}
+
+/**
+ * 「他不只是滑過去」——徽章配色走這條線。
+ *
+ * 白名單，不是 `!== 'weak'`：舊寫法讓每一級新來源預設變成強訊號，`saved` 一加
+ * 進 union 就會靜靜地被算成強訊號、拿到綠底徽章，而它是四級裡最弱的一級。
+ * 委派給 `signalBucket` 而不是自己再列一次值：分組只能有一份，兩份遲早會分岔。
+ */
 function isStrongSignal(strength: CaptureStrength): boolean {
-  return strength !== 'weak';
+  return signalBucket(strength) === 'strong';
+}
+
+/**
+ * 倒帶偵測出來的兩級。**confirm rate 唯一合法的母體。**
+ *
+ * 白名單不是風格：這一格量的是「倒帶偵測準不準」，任何不伴隨倒帶的來源進來都會
+ * 把它變成「使用者多常用某個功能」。上一輪用 `!== 'selected'` 打補丁，這一輪
+ * 'saved' 就原封不動漏了進來——而且它比 'selected' 更嚴重，連倒帶都沒有。
+ */
+function isRewindSignal(strength: CaptureStrength): boolean {
+  return strength === 'weak' || strength === 'strong';
+}
+
+/** 真的有理解斷點的三級。'saved' 是「我想學這個詞」，不是「我這裡沒聽懂」。 */
+function isDifficultySignal(strength: CaptureStrength): boolean {
+  return strength === 'weak' || strength === 'strong' || strength === 'selected';
 }
 
 /**
@@ -137,11 +207,29 @@ function isStrongSignal(strength: CaptureStrength): boolean {
 function signalOrigin(capture: Capture): string {
   switch (capture.strength) {
     case 'selected':
-      return '你在這裡重聽之後，親手圈出了聽不懂的字';
+      // ⚠️ 'selected' 有**兩種**來歷，strength 一個欄位分不出來。segmentation 的
+      // 前提正好是「他指不出是哪幾個字」，照印「親手圈出了聽不懂的字」等於在卡片
+      // 上宣稱一個他剛剛才明說自己做不到的動作——而且下面幾行就印著他真正說的
+      // 那句話（「你說這裡切不出有幾個字」），一張卡自己打自己。
+      return capture.selection_kind === 'segmentation'
+        ? '你在這裡重聽之後，指著這一句說「我聽不出這裡有幾個字」'
+        : '你在這裡重聽之後，親手圈出了聽不懂的字';
     case 'strong':
       return '你在這裡重聽了 2 次以上，或重聽後放慢／打開了逐字稿';
-    default:
+    case 'weak':
       return '你在這裡重聽了 1 次';
+    case 'saved':
+      // 明講「沒有重聽紀錄」，因為這張卡與其他三種的來歷是質的不同，
+      // 而含糊其辭會讓它讀起來像一次比較弱的重聽。
+      return '你在逐字稿裡點了這個詞，說想學它——這裡沒有重聽紀錄';
+    default: {
+      // 窮盡檢查。原本的 `default:` 是全 app 唯一會產出**假陳述**的洞：新增一級
+      // 就靜靜掉進「你在這裡重聽了 1 次」，在卡片上印一次從沒發生的倒帶。
+      // 有 default 的 switch TypeScript 不會抱怨，所以改成 never 讓下一級在
+      // 編譯期就爆掉。
+      const never: never = capture.strength;
+      return never;
+    }
   }
 }
 
@@ -247,6 +335,9 @@ export default function PracticeScreen() {
   // Session stats
   const [practicedStrong, setPracticedStrong] = useState(0);
   const [practicedWeak, setPracticedWeak] = useState(0);
+  // 第三格：他標記想學的詞。獨立計數是因為前兩格都在講**倒帶**（見 signalBucket），
+  // 而這一格背後一次倒帶都沒有。
+  const [practicedSaved, setPracticedSaved] = useState(0);
   const [dismissed, setDismissed] = useState(0);
   const sessionStartRef = useRef(Date.now());
   const recordedSessionRef = useRef(false);
@@ -284,6 +375,12 @@ export default function PracticeScreen() {
   // 'confirmed'）把它變成可批量產生的主要路徑——通勤路上圈 12 個片語，今日正式
   // 佇列就是 12 張全流程練習卡，session 直接衝破十分鐘承諾，練到第 6 張放棄還會
   // 記成未完成。ADR-0011 寫下來就是為了防止「訊號最多的那天完成率最低」。
+  //
+  // ⚠️ 已知債（本輪不解）：strength 'saved' 讓這個量級再放大一個數量級。框選要
+  // 長按拖曳選字，TermSheet 的「＋ 加入練習」只要**一次點擊**——一集點 20 個詞
+  // 就是隔天 20 張全流程卡。本輪只靠 STRENGTH_RANK（saved = 3，排最後）讓它們沉
+  // 到佇列尾，沒有實作上限：真正的 N=5 分流要同時動這裡與 App.tsx 的孿生 badge
+  // 邏輯，單邊改會重演「徽章說有 3 張、點進去是空的」，那是獨立的一輪。
   //
   // ⚠️ App.tsx 的 computeBadge 是這套規則的孿生實作，但它的 orphanConfirmed 還沒有
   // 這道日切（那支檔案這一輪不屬於本代理）。在它補上之前，徽章會把今天框的字算成
@@ -361,6 +458,10 @@ export default function PracticeScreen() {
     // review 卡與孤兒 confirmed 卡都跳過 confirm 步。框選來的 capture 建立時
     // status 就是 'confirmed'（他親手圈字，等於已經回答過「真的沒聽懂嗎」），
     // 所以也走這條線——再問一次既是侮辱，也會讓 confirm rate 這個指標失去意義。
+    //
+    // 'saved' 同樣天生 confirmed，跳過也是對的：他根本沒有理解斷點，「這段是真的
+    // 沒聽懂嗎」對他沒有意義。代價是它永遠不貢獻 confirm rate——那正好與上方
+    // rewindWeakness 的白名單一致，兩者必須同時成立這個指標才自洽。
     setStep(
       current?.mode === 'review' || current?.capture.status === 'confirmed'
         ? 'practice'
@@ -425,9 +526,13 @@ export default function PracticeScreen() {
       // 「再來一次」會把同一張卡 push 回佇列尾 → 以去重後的卡數為準，
       // 避免 items_total 被 again 灌水。
       items_total: new Set(queue.map((q) => q.capture.id)).size,
-      items_completed: practicedStrong + practicedWeak,
+      // 練了就是練了：saved 也算進完成度（streak 與 completion_rate 都吃這個欄位，
+      // 只練 saved 的一天不該被記成沒練）。但它**不進 weak_count**——那一格的
+      // 定義是「倒帶了一次」。
+      items_completed: practicedStrong + practicedWeak + practicedSaved,
       strong_count: practicedStrong,
       weak_count: practicedWeak,
+      saved_count: practicedSaved,
       dismissed_count: dismissed,
       created_at: new Date().toISOString(),
     });
@@ -546,6 +651,10 @@ export default function PracticeScreen() {
       .filter(Boolean)
       .join(' … ');
     setDiagnosing(true);
+    // 'saved' 的卡也照樣診斷（那是他要的學習內容），但寫回的 diagnosis **不會**
+    // 回頭影響標註：`lib/annotate.ts:weakTypesFromCaptures` 已加上 strength
+    // 白名單擋掉 saved。否則「app 標的詞 → 他收藏 → 影響 app 之後標什麼」會閉環
+    // 成模型餵自己，正是 annotate.ts 檔頭禁止的推測→證據方向。
     void diagnoseCapture({ sentence, context }).then((d) => {
       setDiagnosing(false);
       if (d) updateCapture(liveCapture.id, { diagnosis: d });
@@ -562,12 +671,14 @@ export default function PracticeScreen() {
       setQueue((q) =>
         q ? [...q, { capture: liveCapture, mode: 'review' }] : q,
       );
-    } else if (isStrongSignal(liveCapture.strength)) {
-      // 'selected' 也算進強訊號那一格：它是三級裡最強的一級，掉進 weak 會讓
-      // session 統計把「他親手圈出來的難點」記成一次可能的分心。
-      setPracticedStrong((n) => n + 1);
     } else {
-      setPracticedWeak((n) => n + 1);
+      // 分三格，不是「強訊號 ? A : B」。'selected' 進強訊號那一格（它是最強的
+      // 一級，掉進 weak 會把「他親手圈出來的難點」記成一次可能的分心）；'saved'
+      // 自成一格（它連一次倒帶都沒有，記進弱訊號就是在完成畫面上捏造倒帶）。
+      const bucket = signalBucket(liveCapture.strength);
+      if (bucket === 'strong') setPracticedStrong((n) => n + 1);
+      else if (bucket === 'weak') setPracticedWeak((n) => n + 1);
+      else setPracticedSaved((n) => n + 1);
     }
     advance();
   };
@@ -580,6 +691,7 @@ export default function PracticeScreen() {
     setIndex(0);
     setPracticedStrong(0);
     setPracticedWeak(0);
+    setPracticedSaved(0);
     setDismissed(0);
     recordedSessionRef.current = false; // 搶先練結束時再記一筆當日 record（streak 計算已對同日多筆去重）
     sessionStartRef.current = Date.now();
@@ -589,21 +701,31 @@ export default function PracticeScreen() {
 
   // Streak + 弱點統計（storeVersion 訂閱保證任何 store 變動後重算）。
   const streak = computeStreak(getPracticeLog());
-  const weakness = computeWeaknessStats(getCaptures());
   /**
-   * 確認率**只能**用倒帶偵測出來的 capture 算，所以要第二份統計。
+   * 「累計捕捉 N 個難點」與難點分佈：**只算真的有理解斷點的三級**。
    *
-   * 框選來的 capture 天生 `status: 'confirmed'`（ADR-0017），進分母的同時也進分子：
+   * 框選含在裡面是誠實的（他倒帶過、也指了位置），但 `saved` 不是難點——那是他
+   * 在讀逐字稿時看上的一個詞。放進來會讓「累計捕捉」變成「累計收藏」，而這個
+   * 數字正是拿去對外講「我們接住了多少真實斷點」的那一個。
+   */
+  const weakness = computeWeaknessStats(
+    getCaptures().filter((c) => isDifficultySignal(c.strength)),
+  );
+  /**
+   * 確認率**只能**用倒帶偵測出來的兩級算，所以要第二份統計。
+   *
+   * 不伴隨倒帶的來源天生 `status: 'confirmed'`（ADR-0017），進分母的同時也進分子：
    * 倒帶 10 次、滑掉 5、確認 5 = 50%，接著圈 20 個片語就變成 83%。畫面上寫的是
-   * 「滑掉的是誤報」，宣稱的是**倒帶偵測有多準**，實際量到的卻是使用者有多常用框選。
-   * ADR-0017 的 Consequences 已經預告要分開統計，這裡就是那個分開。
+   * 「滑掉的是誤報」，宣稱的是**倒帶偵測有多準**，實際量到的卻是使用者有多常用
+   * 那個功能。ADR-0017 的 Consequences 已經預告要分開統計，這裡就是那個分開。
    *
-   * 其餘數字（累計捕捉、難點分佈）含框選是誠實的——那些本來就是「所有難點」，
-   * 只有確認率的定義綁死在倒帶上。濾在呼叫端而不是改 `lib/stats.ts`：那支檔案
-   * 這一輪不屬於本代理。
+   * ⚠️ 上一輪這裡寫的是 `!== 'selected'`——黑名單。於是 `saved` 一加進 union 就
+   * 原封不動漏了回來，而且比 'selected' 更嚴重：它連倒帶都沒有，卻會同時灌進
+   * 分子與分母。改成白名單，下一級新來源預設被排除，要納入得有人明確寫上去。
+   * 濾在呼叫端而不是改 `lib/stats.ts`：那支檔案這一輪不屬於本代理。
    */
   const rewindWeakness = computeWeaknessStats(
-    getCaptures().filter((c) => c.strength !== 'selected'),
+    getCaptures().filter((c) => isRewindSignal(c.strength)),
   );
 
   // ---------------------------------------------------------------------
@@ -657,7 +779,9 @@ export default function PracticeScreen() {
             <Text style={styles.statNum}>
               {Math.round(rewindWeakness.confirmRate * 100)}%
             </Text>
-            （滑掉的是誤報；框選不計入）
+            {/* 括號裡要逐一點名排除了誰：這行字是這個數字唯一的定義，只寫
+                「框選不計入」而漏掉標記想學，讀的人會以為分母是全部的 capture。 */}
+            （滑掉的是誤報；框選與標記想學不計入）
           </Text>
         )}
       </Glass>
@@ -704,9 +828,16 @@ export default function PracticeScreen() {
         <Text style={styles.bigEmoji}>✅</Text>
         <Text style={styles.title}>今日練習完成</Text>
         <Glass radius={R.lg} style={styles.statsBox}>
+          {/* 括號裡三格分開列：前兩格是倒帶訊號的兩級，「標記想學」不是訊號，
+              併進弱訊號會讓這行字宣稱一批沒發生過的倒帶。沒有就不列——0 那一格
+              對他沒有意義，只會讓這行變長。 */}
           <Text style={styles.statLine}>
-            練了 <Text style={styles.statNum}>{practicedStrong + practicedWeak}</Text> 句
-            （強訊號 {practicedStrong}・弱訊號 {practicedWeak}）
+            練了{' '}
+            <Text style={styles.statNum}>
+              {practicedStrong + practicedWeak + practicedSaved}
+            </Text>{' '}
+            句（強訊號 {practicedStrong}・弱訊號 {practicedWeak}
+            {practicedSaved > 0 ? `・標記想學 ${practicedSaved}` : ''}）
           </Text>
           <Text style={styles.statLine}>
             滑掉分心誤報 <Text style={styles.statNum}>{dismissed}</Text> 個
@@ -770,7 +901,7 @@ export default function PracticeScreen() {
                   : styles.chipTextDim
               }
             >
-              {STRENGTH_LABEL[liveCapture.strength]}
+              {strengthBadge(liveCapture)}
             </Text>
           </View>
         </View>
@@ -854,12 +985,27 @@ export default function PracticeScreen() {
           </>
         )}
 
-        {/* 他親手圈的字。這是學習者自己給的答案，不是 app 的推測，所以它不跟著
-            遮罩走——遮的是「這句話是什麼」，而這幾個字是他早就講出口的。 */}
+        {/**
+         * 他自己指出來的東西。這是學習者給的答案、不是 app 的推測，所以不跟著
+         * 遮罩走——遮的是「這句話是什麼」，而這幾個字是他早就講出口的。
+         *
+         * ⚠️ segmentation 例外：它的 selection_text 就是**整句**，照印等於在遮罩
+         * 正下方把答案原文貼一次，clue/hint 兩級當場報廢。所以只印標籤——標籤
+         * 本身已經把這張卡的來歷講完了（他說的是「這裡有幾個字我切不出來」，
+         * 而不是某幾個字）。
+         */}
         {liveCapture.selection_text ? (
           <View style={styles.selectionWrap}>
-            <Text style={styles.selectionLabel}>你圈的字</Text>
-            <Text style={styles.selectionText}>{liveCapture.selection_text}</Text>
+            <Text style={styles.selectionLabel}>
+              {liveCapture.selection_kind === 'segmentation'
+                ? '你說這裡切不出有幾個字'
+                : liveCapture.strength === 'saved'
+                  ? '你標記想學'
+                  : '你圈的字'}
+            </Text>
+            {liveCapture.selection_kind !== 'segmentation' && (
+              <Text style={styles.selectionText}>{liveCapture.selection_text}</Text>
+            )}
           </View>
         ) : null}
 

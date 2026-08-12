@@ -8,18 +8,23 @@
  */
 
 /**
- * 訊號強度三級。**它們是同一條管線上的深淺，不是三種來源**（ADR-0003）：
+ * 訊號強度四級。**它們是同一條管線上的深淺，不是四種來源**（ADR-0003）：
  *
+ *   saved     點了 app 標的詞說想學   ← 沒有理解斷點，最弱
  *   weak      倒帶了（可能只是分心，練習頁的 confirm 步驟負責過濾）
  *   strong    倒帶 + 10 秒內降速或打開逐字稿
- *   selected  倒帶 + 開稿 + 親手圈出是哪幾個字   ← migration 006
+ *   selected  倒帶 + 開稿 + 親手指出是哪幾個字
  *
- * 加 `selected` 而不是新開一個型別，是因為框選產生的東西在下游（診斷、SRS、
- * 每日 session）跟倒帶產生的東西行為完全一樣；分家只會讓每個查詢都要處理兩種
- * 形狀。⚠️ 三態之後，任何 `=== 'strong'` 的二分法都要重新檢查 else 分支——
- * `selected` 是最強的一級，掉進「弱訊號」那一邊會是錯的。
+ * `saved` 與其餘三級有一道質的差別，不只是量的差別：另外三級背後都有一次真的
+ * 發生過的倒帶，`saved` 沒有。所以它可以進練習佇列（那是「他想學什麼」），
+ * **但不准進任何訊號指標**（那是「他哪裡聽不懂」）。這個 repo 已經在 `selected`
+ * 上犯過兩次同樣的錯，兩次都是因為指標用「排除某一級」的黑名單寫法。
+ *
+ * ⚠️ 任何以 strength 分岔的地方一律用**白名單**（明列吃哪幾級），不准用
+ * `!== 'weak'` / `!== 'selected'`：黑名單讓新增的級別預設被算進去，而預設
+ * 算進去的代價是產品唯一的論點（這些數字是真的）當場失效。
  */
-export type CaptureStrength = 'weak' | 'strong' | 'selected';
+export type CaptureStrength = 'saved' | 'weak' | 'strong' | 'selected';
 
 /**
  * 使用者**意圖**：他框的是一個詞還是一個句型。
@@ -27,8 +32,13 @@ export type CaptureStrength = 'weak' | 'strong' | 'selected';
  * 刻意不重用 DiagnosisType 的六個值——那六個是 app 的**判斷結果**，這一個是
  * 學習者自己說的。兩者可以不一致（他圈了一個詞、診斷卻認為真正的難點是連音），
  * 而那個不一致本身就是有價值的資料，合併欄位會把它抹掉（migration 006）。
+ *
+ * 'segmentation' = 「我聽不出這裡有幾個字」。它與另外兩個不同：不是「我要學這個」
+ * 而是「我連把聲音切成詞都做不到」（Field 2003 的詞界切分失敗）。這一級的
+ * selection_text 是**整句**，因為斷點的位置本來就不在某個詞上——市面上沒有 app
+ * 收得到這個資料，它是這個產品獨有的那一格。
  */
-export type SelectionKind = 'vocab' | 'grammar';
+export type SelectionKind = 'vocab' | 'grammar' | 'segmentation';
 
 export type CaptureStatus = 'pending' | 'confirmed' | 'dismissed' | 'practiced';
 
@@ -66,14 +76,19 @@ export interface Capture {
   transcript_text?: string;
   diagnosis?: Diagnosis;
   /**
-   * 學習者親手框出來的那幾個字。只有 strength === 'selected' 時才有。
+   * 學習者親手指出來的那一段。三種來源，看 `selection_kind` 分辨：
+   *   vocab / grammar  他框出來的那幾個字
+   *   segmentation     整句（他連詞界都切不出來，指不出更小的範圍）
+   *   （沒有 kind）     strength 'saved'：app 標的琥珀詞，他按了加入練習
    *
    * 跟 `transcript_text` 分開存：後者是整句上下文（診斷需要），這裡是句子
    * **裡面**的一小段。沒有這一欄，Claude 只能重新猜一次「難在哪」——而那正是
-   * 框選要消滅的不確定性。
+   * 框選要消滅的不確定性。（segmentation 兩者相同不是冗餘：一個是上下文、
+   * 一個是他指的範圍，讀的人靠 kind 才知道「整句」是他的答案而非預設值。）
    */
   selection_text?: string;
-  /** 他說那是詞還是句型。與 diagnosis.type 刻意分開，見 SelectionKind。 */
+  /** 他說那是詞、句型、還是「根本切不出詞」。strength 'saved' 沒有這一欄——
+   *  「詞還是句型」是 evaluation，聽的當下不問（見 TermSheet 檔頭）。 */
   selection_kind?: SelectionKind;
   created_at: string; // ISO 8601
 }
@@ -123,7 +138,13 @@ export interface PracticeRecord {
   items_total: number;
   items_completed: number;
   strong_count: number;
+  /** **只數倒帶了一次的那一級**。'saved' 不在裡面——它背後沒有倒帶，混進來這個
+   *  欄位就從「偵測到幾次重聽」變成「他練了幾張卡」。 */
   weak_count: number;
+  /** 他標記想學的詞練了幾張。與上面兩格分開存是因為它不是訊號，只是意願。
+   *  optional：這個欄位比既有的 practice log 晚出生，舊紀錄沒有它（缺 = 0，
+   *  不是 0 也不是未知——那時候還沒有 'saved' 這一級）。 */
+  saved_count?: number;
   dismissed_count: number;
   created_at: string; // ISO 8601
 }
