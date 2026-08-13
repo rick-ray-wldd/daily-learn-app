@@ -227,7 +227,7 @@ ADR-0016 記得很清楚：`expo-audio` 的 `MPRemoteCommandCenter` handler 在�
 來自 `RUNBOOK.md` 第 0 步，不需要 Xcode，30 秒：
 
 ```bash
-APP=/Users/rick_sanchez/Documents/NTU/NTUCS_AI/2026_Summer_Programs/stanford/projects/daily-learn-app/app
+APP="$(git rev-parse --show-toplevel)/app"
 cd "$APP"
 npx tsc --noEmit                                    # 必須通過
 npx expo export --platform ios                      # 必須通過

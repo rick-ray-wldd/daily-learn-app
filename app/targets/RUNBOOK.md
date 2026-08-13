@@ -34,7 +34,8 @@ app.json 的 plugins            → ["expo-audio", "expo-asset", "expo-status-ba
 以下所有指令的工作目錄除非特別標明，都是：
 
 ```bash
-APP=/Users/rick_sanchez/Documents/NTU/NTUCS_AI/2026_Summer_Programs/stanford/projects/daily-learn-app/app
+# 從 repo 內任何位置都成立，換機器也不用改
+APP="$(git rev-parse --show-toplevel)/app"
 cd "$APP"
 ```
 
