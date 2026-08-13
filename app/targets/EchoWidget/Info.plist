@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  EchoWidget/Info.plist —— widget extension 的靜態 Info.plist。
+
+  真相來源是這個檔（targets/），ios/EchoWidget/ 底下那份是 config plugin 複製過去的
+  拋棄式副本，改那份會在下一次 prebuild 被蓋掉。
+
+  ⚠️ 版號兩欄一律用 build setting 變數，**不准寫死數字**：
+  eas.json 走 appVersionSource: "remote" + production.autoIncrement，版號由 EAS 管。
+  extension 與主 app 的版號只要不一致就會被 App Store 退件，而寫死是唯一會讓它們
+  不一致的原因。
+
+  已知限制：CFBundleDisplayName 的中文無法在地化（expo/expo #48687，app.json 的
+  locales 只到主 app target）。我們目前只有中文使用者，接受寫死中文。
+-->
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>$(DEVELOPMENT_LANGUAGE)</string>
+	<key>CFBundleDisplayName</key>
+	<string>今日複習</string>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>$(PRODUCT_NAME)</string>
+	<key>CFBundlePackageType</key>
+	<string>$(PRODUCT_BUNDLE_PACKAGE_TYPE)</string>
+	<key>CFBundleShortVersionString</key>
+	<string>$(MARKETING_VERSION)</string>
+	<key>CFBundleVersion</key>
+	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>NSExtension</key>
+	<dict>
+		<key>NSExtensionPointIdentifier</key>
+		<string>com.apple.widgetkit-extension</string>
+	</dict>
+</dict>
+</plist>

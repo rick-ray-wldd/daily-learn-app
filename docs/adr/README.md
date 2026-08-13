@@ -27,3 +27,4 @@ covering the area they touch. Copy `0000-template.md` for new ones.
 | [0018](0018-glass-material-layer.md) | 玻璃材質層用疊層自己做，不裝原生模組；材質與語意分開兩套 token | accepted |
 | [0019](0019-home-tab-and-conditional-mini-player.md) | 首頁分頁：三分頁外殼，mini player 只在首頁以外常駐 | accepted |
 | [0020](0020-bento-over-masonry.md) | 首頁把 bento 與 masonry 上下疊，不並排也不交錯 | accepted |
+| [0021](0021-lock-screen-review-live-activity.md) | 鎖屏複習卡：原生碼放 `targets/` 由 config plugin 注入；按鈕走 App Intent；答題不推進 SRS | accepted |
