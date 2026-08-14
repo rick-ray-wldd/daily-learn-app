@@ -412,6 +412,37 @@ function MaskedSentence({ text, stage }: { text: string; stage: 'shape' | 'hint'
   );
 }
 
+/**
+ * 這次 app 存活期間，已經為了補出題欄位重新診斷過的 capture id。
+ *
+ * 存在的理由：一筆診斷寫下去就是終局——`onReveal` 看到 `diagnosis` 就直接 return，
+ * 全 app 沒有第二個 `diagnoseCapture` 呼叫點。所以在 Edge Function 開始生成
+ * `gloss_zh` / `distractors_zh` 之前寫下的那些**舊格式**診斷，永遠等不到那兩欄，
+ * 那張卡就永遠出不了題。而且補不了：整個 app 對 `captures` 只有 upsert、沒有任何
+ * `.select(`，在 Postgres 端 backfill 完全到不了裝置，下一次本機 upsert 還會把
+ * backfill 的那列蓋回去。唯一走得通的路是**在裝置上重跑一次診斷**。
+ *
+ * 用 module-level Set 而不是 store：這是「這次 app 啟動期間試過了」的暫時狀態，
+ * 不值得多一個 AsyncStorage key。它的職責只有一個——擋住無限重試：模型這次也可能
+ * 回一筆沒有 gloss 的診斷（非 vocab、或品質不夠被 server 擋下），沒有這個 Set，
+ * 同一張卡每次揭露都會再花一次 API 呼叫。
+ */
+const reDiagnosed = new Set<string>();
+
+/**
+ * 這張卡要不要（重新）診斷。
+ *   - 沒有 diagnosis：本來就要診斷。
+ *   - 有 diagnosis 但 type 是 vocab 卻缺 `gloss_zh`：舊格式，值得補一次。
+ *   - 有 diagnosis 且不是 vocab：**不重試**。出題本來就只做 vocab
+ *     （`functions/diagnose/index.ts` 的 `pickQuizFields`），重試只是白花錢。
+ */
+function needsDiagnosis(capture: Capture): boolean {
+  const d = capture.diagnosis;
+  if (!d) return true;
+  if (d.type !== 'vocab' || d.gloss_zh) return false;
+  return !reDiagnosed.has(capture.id);
+}
+
 /** Restore the app-wide playback audio mode (recording off). */
 function restorePlaybackMode(): Promise<void> {
   return setAudioModeAsync({
@@ -816,7 +847,7 @@ export default function PracticeScreen() {
   /** 全文揭露 = 診斷的觸發點：答案不該比題目早出現。 */
   const onReveal = () => {
     setReveal('full');
-    if (!liveCapture || liveCapture.diagnosis || !isDiagnosisConfigured()) {
+    if (!liveCapture || !needsDiagnosis(liveCapture) || !isDiagnosisConfigured()) {
       return;
     }
     if (transcript.phase !== 'ready' || !transcript.sentences) return;
@@ -831,13 +862,23 @@ export default function PracticeScreen() {
       .filter(Boolean)
       .join(' … ');
     setDiagnosing(true);
+    // 補診斷一張卡最多試一次（見 `reDiagnosed`）。**在發出請求時就記**，不是在
+    // 回來之後——失敗也算試過，否則失敗會變成每次揭露都重打一次。
+    reDiagnosed.add(liveCapture.id);
+    const hadDiagnosis = Boolean(liveCapture.diagnosis);
     // 'saved' 的卡也照樣診斷（那是他要的學習內容），但寫回的 diagnosis **不會**
     // 回頭影響標註：`lib/annotate.ts:weakTypesFromCaptures` 已加上 strength
     // 白名單擋掉 saved。否則「app 標的詞 → 他收藏 → 影響 app 之後標什麼」會閉環
     // 成模型餵自己，正是 annotate.ts 檔頭禁止的推測→證據方向。
     void diagnoseCapture({ sentence, context }).then((d) => {
       setDiagnosing(false);
-      if (d) updateCapture(liveCapture.id, { diagnosis: d });
+      if (!d) return;
+      // 已經有診斷時，**只有真的補到出題欄位才覆寫**。同一句話每次診斷挑的
+      // focus_phrase 都可能不同（實測：同一句先後給出 "pharmacology, pharmacologic
+      // substance" 與 "spike adrenaline"），拿一筆一樣出不了題的新診斷去換掉他
+      // 已經讀過的那一筆，只是把畫面上的內容換掉、什麼也沒換到。
+      if (hadDiagnosis && !d.gloss_zh) return;
+      updateCapture(liveCapture.id, { diagnosis: d });
     });
   };
 

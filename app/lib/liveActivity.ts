@@ -130,19 +130,19 @@ export interface LiveActivityAnswer {
 }
 
 /**
- * 整個 schema 裡**沒有**「這個英文片語的簡短中文意思」這一欄，所以在這裡就地擴充
- * 而不動 `lib/types.ts`（本輪的檔案分工不含它）。
+ * 這兩欄現在**已經**在 `lib/types.ts` 的 `Diagnosis` 上（optional），本型別留著只是
+ * 為了讓本檔的讀者一眼看到「出題需要的到底是哪兩欄」。`DiagnosisWithGloss` 因此
+ * 等價於 `Diagnosis`，兩者可以互換。
  *
  * ⚠️ `Diagnosis.explanation_zh` 是「為什麼這句難」的 ≤60 字說明，**不是** gloss。
  * 拿它當正解會讓正解 60 字、干擾項 5 字，光看長度就能選對——卡片當場失去測驗價值，
  * 卻會產出一個很漂亮的假正確率。**明令禁止。**
  *
- * 下一輪要做的是：
- *   ① `Diagnosis` 加 optional 的 `gloss_zh` / `distractors_zh`
- *   ② diagnose Edge Function 的 strict tool schema 一併回傳
- *   ③ **client（`lib/diagnose.ts`）與 server（`functions/diagnose/index.ts`）的
- *      `validateDiagnosis` 各有一份，兩份都要改** —— client 是逐欄位重建物件回傳，
- *      只改 server 的話新欄位會被 client 靜靜丟掉。
+ * 生產者鏈（三段都已完成，2026-08-14）：
+ *   ① `Diagnosis` 的 optional `gloss_zh` / `distractors_zh`（`lib/types.ts`）
+ *   ② diagnose Edge Function 生成它們，並在 server 端過三道閘（型別字數標點單一詞 →
+ *      字面重疊 → 盲測複核）
+ *   ③ `lib/diagnose.ts` 的 client validator 把它們讀進來（逐欄位重建物件，不 spread）
  */
 export interface DiagnosisGloss {
   /** ≤ OPTION_LABEL_MAX_CHARS 字，這個片語**在這句話裡**的意思。與 explanation_zh 不同。 */
@@ -161,13 +161,13 @@ export type DiagnosisWithGloss = Diagnosis & DiagnosisGloss;
 // ─────────────────────────────────────────────────────────────────────────────
 
 export type SkipReason =
-  /** `selection_kind === 'segmentation'`：它的 selection_text 就是整句，整類排除。 */
+  /** `selection_kind === 'segmentation'`：斷點不在詞義上，整類排除。 */
   | 'segmentation'
-  /** 既沒有可用的 selection_text 也沒有 focus_phrase。 */
+  /** 沒有 `diagnosis.focus_phrase` ——**通常代表這張卡還沒被診斷過**。 */
   | 'no-prompt'
   /** 題面超過 PROMPT_MAX_CHARS。 */
   | 'prompt-too-long'
-  /** `diagnosis.gloss_zh` 不存在（目前所有 capture 都會落在這裡，見檔尾說明）。 */
+  /** `diagnosis.gloss_zh` 不存在：舊格式的 diagnosis，或這次診斷不是 vocab。 */
   | 'no-gloss'
   /** 去掉與正解重複的之後，干擾項不足 2 個。 */
   | 'not-enough-distractors'
@@ -197,11 +197,14 @@ export interface BuildDeckResult {
  * 把今日佇列轉成一副鎖屏複習卡。**輸入為空、或一張都湊不出來，回傳 `deck: null`
  * 而不是空 deck、更不是丟例外。**
  *
- * ⚠️ 現況（2026-08）：`gloss_zh` / `distractors_zh` 這兩欄還沒有任何生產者，
- * 所以本函式對真實資料**必然**回傳 `deck: null`、`skipped` 全是 `'no-gloss'`。
- * 這是正確行為，不是 bug：**資料到位前 Live Activity 就不該啟動。** 啟動它本身
- * 就是「你有事要做」的宣稱，拿空的或假的卡去兌現那個宣稱，會直接砸掉這個產品
- * 唯一的論點。要讓它有東西可跑，得先做上面 `DiagnosisGloss` 註解裡的 ①②③。
+ * ⚠️ 現況（2026-08-14）：`gloss_zh` / `distractors_zh` 已經有生產者（diagnose Edge
+ * Function），但**只有重新診斷過的 capture 才會帶著它們**。線上 15 筆裡 14 筆連
+ * `diagnosis` 都沒有（落在 `'no-prompt'`），唯一那筆是舊格式（落在 `'no-gloss'`）。
+ * 所以今天真實資料仍然回 `deck: null`，只是理由已經**不是**「沒有生產者」。
+ *
+ * 空的時候回 null 永遠是正確行為，不是 bug：**資料到位前 Live Activity 就不該啟動。**
+ * 啟動它本身就是「你有事要做」的宣稱，拿空的或假的卡去兌現那個宣稱，會直接砸掉
+ * 這個產品唯一的論點。
  */
 export function buildDeck(input: BuildDeckInput): BuildDeckResult {
   const skipped: BuildDeckResult['skipped'] = [];
@@ -252,25 +255,36 @@ function buildCard(
   capture: Capture,
   random: () => number,
 ): { card: LiveActivityCard } | { reason: SkipReason } {
-  // ① segmentation 整類排除：它的 selection_text 是**整句**。`HomeScreen.tsx` 已經
-  //    為了膠囊寫過一次同樣的排除，而鎖屏的空間比膠囊更小。
+  // ① segmentation 整類排除：他說的是「我連把聲音切成詞都做不到」，那個斷點不在
+  //    任何一個詞的**詞義**上。拿一題中文詞義三選一去問他，測到的不是他的斷點，
+  //    但答錯照樣會寫 SRS。（`HomeScreen.tsx` 已經為了膠囊寫過一次同樣的排除。）
   if (capture.selection_kind === 'segmentation') return { reason: 'segmentation' };
 
-  // ② 題面來源優先序（規定，不准改）：
-  //      1. selection_text —— schema 裡唯一「天生就是短片語」的欄位（他親手圈的字），
-  //         但只在 ≤ PROMPT_MAX_CHARS 時採用，太長就往下掉而不是直接否決。
-  //      2. diagnosis.focus_phrase
-  //    `transcript_text` **永遠不准**當題面，那是整句。
-  const selection = trimmed(capture.selection_text);
-  const focus = trimmed(capture.diagnosis?.focus_phrase);
-  const prompt =
-    selection && charCount(selection) <= PROMPT_MAX_CHARS ? selection : focus;
+  // ② 題面**只能**是 `diagnosis.focus_phrase`（規定，不准改）。
+  //
+  //    這裡原本的第一順位是 `selection_text`（他親手圈的字），理由是 schema 裡只有
+  //    它天生就是短片語。那條路是錯的，而且錯得很安靜：
+  //    正解是 `gloss_zh`，而 `gloss_zh` 是**針對 focus_phrase** 生成的，
+  //    `selection_text` 從頭到尾沒有進過診斷（`screens/Practice.tsx` 只送
+  //    `{ sentence, context }`），focus_phrase 是模型自己從整句挑的。兩者**可以指向
+  //    不同的詞**——`types.ts` 的 SelectionKind 檔頭就明文說它們可以不一致，而且那個
+  //    不一致本身是有價值的資料。實測同一句話兩次診斷分別給出
+  //    "pharmacology, pharmacologic substance" 與 "spike adrenaline"，都不是使用者圈的字。
+  //
+  //    後果：題面印「alpha GPC」，三顆按鈕卻是 "spike" 的三個選項——**一顆都不對**。
+  //    使用者無論按哪顆，2/3 被判錯 → `lib/notifications.ts` 寫下
+  //    `gradeSrsItem(item, 'again')`，我們拿到一筆捏造的「他不會 alpha GPC」；
+  //    剩下 1/3 判對，記下的是「他知道 alpha GPC 是迅速提升」，一樣是假的。
+  //
+  //    要讓他圈的字回到題面上，正確做法是**把 selection_text 一起送進診斷**、讓
+  //    focus_phrase 對齊他圈的字，而不是在這裡把兩個不同來源的東西湊成一題。
+  //    `transcript_text` 同樣**永遠不准**當題面，那是整句。
+  const prompt = trimmed(capture.diagnosis?.focus_phrase);
 
   if (!prompt) return { reason: 'no-prompt' };
-  // 走到這裡代表 prompt 來自 focus_phrase（selection_text 那條有長度守門）。
   if (charCount(prompt) > PROMPT_MAX_CHARS) return { reason: 'prompt-too-long' };
 
-  // ③ 正解與干擾項。這兩欄現在還沒有生產者——見 buildDeck 檔頭的現況說明。
+  // ③ 正解與干擾項，由 diagnose Edge Function 生成（見檔頭現況說明）。
   const diagnosis = capture.diagnosis as DiagnosisWithGloss | undefined;
   const gloss = trimmed(diagnosis?.gloss_zh);
   if (!gloss) return { reason: 'no-gloss' };

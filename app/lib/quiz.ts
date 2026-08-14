@@ -85,7 +85,7 @@ export interface QuizQuestion {
 export type QuizBlockedReason =
   /** 今天沒有到期的卡。 */
   | 'empty-queue'
-  /** 有卡但沒有 `gloss_zh`（**今天必然走這條**，見 `buildQuiz` 檔頭）。 */
+  /** 有卡、有題面，但沒有 `gloss_zh`：舊格式的 diagnosis，或那次診斷不是 vocab。 */
   | 'no-gloss'
   | 'not-enough-distractors'
   | 'no-prompt'
@@ -136,8 +136,8 @@ export interface BuildQuizResult {
  * 一個 SkipReason 時，這裡會**編譯失敗**而不是安靜地印出 `undefined`。
  */
 export const SKIP_REASON_ZH: Readonly<Record<SkipReason, string>> = {
-  segmentation: '整句切分題，題面塞不進通知',
-  'no-prompt': '沒有可用的題面',
+  segmentation: '整句切分題，斷點不在詞義上',
+  'no-prompt': '還沒診斷過，沒有題面',
   'prompt-too-long': '題面過長',
   'no-gloss': '沒有中文簡義（gloss_zh）',
   'not-enough-distractors': '干擾項不足 2 個',
@@ -151,12 +151,14 @@ export const SKIP_REASON_ZH: Readonly<Record<SkipReason, string>> = {
 /**
  * 把今日佇列轉成 0..3 則通知題目。
  *
- * ⚠️ **現況（2026-08）：這支對真實資料必然回傳 `questions: []`、
- * `blocked: 'no-gloss'`。這是設計，不是失敗。**
- * `gloss_zh` / `distractors_zh` 這兩欄在整個 repo 裡**沒有任何生產者**
- * （`lib/diagnose.ts` 的 `validateDiagnosis` 是逐欄位重建物件，即使 Edge Function
- * 哪天開始回傳，client 這一側也會先把它丟掉），所以 `buildDeck` 必然回 `deck: null`、
- * `skipped` 全部是 `'no-gloss'`。
+ * ⚠️ **現況（2026-08-14）：這支對今天的真實資料仍然回傳 `questions: []`，但
+ * `blocked` 是 `'no-prompt'` 而不是 `'no-gloss'`。0 題是合法狀態，不是失敗。**
+ * `gloss_zh` / `distractors_zh` 現在**有**生產者（diagnose Edge Function 生成、
+ * `lib/diagnose.ts` 讀進來），可是那條路只在**重新診斷**時經過：線上 15 筆 capture
+ * 有 14 筆連 `diagnosis` 都沒有（→ 沒有題面 → `'no-prompt'`），唯一有的那筆是
+ * 舊格式（→ `'no-gloss'`）。要讓題目出得來，得讓卡片在裝置上真的跑過一次診斷
+ * （練習頁按「看全文」）——**在 Postgres 端 backfill `captures.diagnosis` 沒有用**，
+ * 這個 app 對 `captures` 只有 upsert、沒有任何 `.select(`，佇列全部來自本機 store。
  *
  * **出不了題時的正確行為是「一則都不排」**，不是排一則佔位通知、更不是換個來源湊題：
  *   - 不准拿 `explanation_zh`（≤60 字）當正解——正解 60 字、干擾項 5 字，
@@ -386,9 +388,14 @@ function summarize(
     case 'empty-queue':
       return '今天沒有到期的卡，所以沒有排題目通知。';
     case 'no-gloss':
-      return `佇列有 ${queue.length} 張卡，但沒有一張帶中文簡義（gloss_zh）與干擾項——diagnose Edge Function 還沒生成這兩欄。今天不排題目通知：寧可沒有，也不出一則猜的題目。`;
+      // 這句話**不准**再寫成「Edge Function 還沒生成這兩欄」——那是舊事實，會把人
+      // 指到伺服器去查一個沒有問題的東西。真正的原因只有兩種，都在裝置這一側。
+      return `佇列有 ${queue.length} 張卡有題面，但沒有一張帶中文簡義（gloss_zh）：不是舊格式的診斷（在 Edge Function 會生成這兩欄之前寫的），就是那次診斷不是生詞類。要補上的話得在練習頁重新診斷那張卡（改資料庫沒有用，佇列讀的是本機 store）。今天不排題目通知：寧可沒有，也不出一則猜的題目。`;
     case 'not-enough-distractors':
       return `有 ${countOf(skipped, 'not-enough-distractors')} 張卡有正解但干擾項不足 2 個，湊不出三選一。不排通知。`;
+    case 'no-prompt':
+      // 今天真實資料走的就是這一條（線上 15 筆有 14 筆沒有 diagnosis）。
+      return `有 ${countOf(skipped, 'no-prompt')} 張卡還沒被診斷過（沒有 focus_phrase 可以當題面）。診斷發生在練習頁按「看全文」的時候，練過就會有。今天不排題目通知。`;
     default: {
       const dominant = dominantReason(skipped);
       const n = dominant ? countOf(skipped, dominant) : skipped.length;

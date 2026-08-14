@@ -79,12 +79,34 @@ function validateDiagnosis(input: unknown): Diagnosis | null {
     console.warn('[diagnose] response failed validation:', d);
     return null;
   }
-  return {
+  const out: Diagnosis = {
     type: d.type as DiagnosisType,
     focus_phrase: d.focus_phrase,
     explanation_zh: d.explanation_zh,
     practice_tip_zh: d.practice_tip_zh,
   };
+
+  // 這兩欄一律當 optional 讀：舊 capture 沒有它們，**缺 ≠ 失敗**。所以它們絕不能
+  // 出現在上面那段 reject 條件裡——加進去等於讓線上既有的 diagnosis 整筆作廢。
+  //
+  // 這裡**刻意只做型別安全 + trim**，不重做 8 字上限／去重／難度檢查：那些守門在
+  // `liveActivity.ts` 的 `buildCard`（唯一的規格來源）與 Edge Function 的 server
+  // validator 裡，在這裡再抄一份只會隨時間漂移，然後兩邊對同一張卡給出不同判決。
+  //
+  // 空字串與空陣列**不寫進物件**：模型在品質不夠時就是回 `""` / `[]`（見 diagnose
+  // 的 prompt），把它們留下來會讓下游分不清「還沒生成」和「生成了但是空的」。
+  if (typeof d.gloss_zh === 'string') {
+    const gloss = d.gloss_zh.trim();
+    if (gloss) out.gloss_zh = gloss;
+  }
+  if (Array.isArray(d.distractors_zh)) {
+    const list = d.distractors_zh
+      .filter((x): x is string => typeof x === 'string')
+      .map((x) => x.trim())
+      .filter(Boolean);
+    if (list.length > 0) out.distractors_zh = list;
+  }
+  return out;
 }
 
 /** UI labels for the six difficulty types. */

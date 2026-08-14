@@ -59,6 +59,36 @@ export interface Diagnosis {
   explanation_zh: string;
   /** 中文練習建議，≤40 字。 */
   practice_tip_zh: string;
+  /**
+   * **`focus_phrase`** 這個片語在這句話裡的中文簡義，≤8 字（= `liveActivity.ts` 的
+   * `OPTION_LABEL_MAX_CHARS`，鎖屏一列要塞三顆按鈕）。
+   *
+   * ⚠️ 它回答的是 `focus_phrase`，**不是** `selection_text`。兩者可以指向不同的詞
+   * （`diagnoseCapture` 只收 sentence/context，selection_text 從來沒進過診斷），
+   * 所以任何拿它當正解的題目，題面**只能**是 `focus_phrase`。這條規則落在
+   * `liveActivity.ts` 的 `buildCard`。
+   *
+   * optional 是必要的，而且**缺 ≠ 空字串**：舊 capture 根本沒有這一欄，缺代表
+   * 「還沒生成」。任何讀取端一律當 optional 讀，絕不可以把它加進
+   * `validateDiagnosis` 的 reject 條件——那會讓既有的 diagnosis 整筆作廢。
+   *
+   * ⚠️ 它**不是** `explanation_zh` 的縮寫。`explanation_zh` 是「為什麼這句難」的
+   * ≤60 字說明；拿它當三選一的正解，會變成正解 60 字、干擾項 5 字，光看長度就能
+   * 選對——測驗當場失效，卻會產出一個很漂亮的假正確率。
+   */
+  gloss_zh?: string;
+  /**
+   * 與 `gloss_zh` 語義上明確不同的干擾項，每個 ≤8 字。缺 = 還沒生成。
+   *
+   * 由 `diagnose` Edge Function 預先生成（鎖定畫面的 intent 不能連網，現算不可能）。
+   * **client 不重做長度／去重檢查**，那些守門的唯一規格來源是 `liveActivity.ts` 的
+   * `buildCard`。
+   *
+   * ⚠️ server 端保證的**只有字面不重疊**（相等／互相包含），語義那一層靠的是一次
+   * 盲測複核（`verifyQuizOptions`）——那是模型判斷，不是不變式。所以「絕對沒有第二個
+   * 正解」這句話**沒有人保證得了**，不要據此在下游省掉防線。
+   */
+  distractors_zh?: string[];
 }
 
 export interface Capture {

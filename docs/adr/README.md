@@ -32,3 +32,4 @@ covering the area they touch. Copy `0000-template.md` for new ones.
 | [0023](0023-rewind-inference-instrumentation.md) | 鎖屏倒帶推斷先儀器化（記憶體環狀緩衝 + 開機探針），本輪不動三道閘的常數 | accepted |
 | [0024](0024-notification-as-launcher-not-listening.md) | 互動式通知是 Live Activity 的降級替身；職責是啟動器，不是聽力練習 | accepted |
 | [0025](0025-mirror-ladder-and-deferred-diagnosis.md) | Mirror 三層階梯用預生成原生慢速（非 `setPlaybackRate`）；診斷延後到他先作答 | accepted |
+| [0026](0026-quiz-fields-from-diagnose.md) | 出題欄位由 `diagnose` 生成：gloss 與 explanation 分兩欄、干擾項過三道閘（含盲測複核）、舊資料靠裝置端重診而非 SQL backfill | accepted |
