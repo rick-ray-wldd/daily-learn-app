@@ -3,8 +3,8 @@
 > **這份文件的用途**：把「產品長什麼樣」與「背後的教育理論」放在同一頁。
 > 給三種人讀：想快速理解產品的人（導師／投資人）、要接手的工程師、以及未來的自己。
 >
-> 狀態以 `docs/02-execution/roadmap-expo-to-native.md` §1 為準。
 > 架構決策的「為什麼」在 `docs/adr/`。這份談的是**體驗**與**證據**。
+> §4 的每個數字都是直接查線上資料庫得到的，**不是估計**。
 >
 > 最後更新 2026-08-14。標 🚧 的是寫好但尚未在實機驗證過的。
 
@@ -295,7 +295,7 @@ FSRS 用 DSR 模型（Difficulty / Stability / Retrievability），在數億次�
 benchmark 上達到同樣保留率**少 20–30% 複習量**。
 
 **但低於約 1000 次複習，FSRS 擬合不出個人參數、退回預設值，表現與 SM-2 相當。**
-目前 `difficulty_items` 是 **0 筆**。所以現在換是純成本零收益。
+目前 `difficulty_items` 是 **1 筆**。距離那個門檻還有三個數量級，所以現在換是純成本零收益。
 
 **現在該做、且零成本的**：把 review log 存好（每次評分的 rating、elapsed days、
 當時 interval）。之後要換 FSRS 或訓練自己的 half-life regression 才有資料。
@@ -317,18 +317,69 @@ benchmark 上達到同樣保留率**少 20–30% 複習量**。
 
 ---
 
-## 4. 目前的限制（誠實）
+## 4. 實測狀態（2026-08-14 直接查線上資料庫）
+
+> 這一節的每個數字都是跑 SQL 查出來的，不是估計。日期一過就會失準——
+> 引用前先重查。
+
+### ✅ 已驗證會動的
+
+**核心閉環完整跑通過一次**（這是整個產品第一次端到端成立）：
+
+```
+08-08 04:41  倒帶 → capture (weak)
+             → transcript_text  "Now, it's vitally important to point out
+                                  that you do not need pharmacology…"
+             → diagnosis        type=vocab
+                                focus_phrase="pharmacology, pharmacologic substance"
+             → practiced
+             → difficulty_items  ease 2.5 · interval 1 · due 08-12 · reps 1
+```
+
+**鎖定畫面的倒帶推斷有效**（ADR-0016）：
+
+| trigger_source | 筆數 | 跳幅範圍 |
+| --- | --- | --- |
+| `screen` | 19 | 1.6 – 1334.7 秒 |
+| `lockscreen` | **3** | **10.0 – 10.1 秒** |
+
+10.0–10.1 秒正是 `expo-audio` 寫死的往回鍵間隔——這是那三筆真的來自鎖屏、
+而不是誤判的簽名。三道閘沒有把真事件吃掉。
+
+> 值得記下來的教訓：這套推斷上線後**曾有三天一筆都沒有**，當時的結論是
+> 「可能壞了」。實際上只是還沒有人從鎖屏按過往回鍵。
+> **在只有一個使用者的階段，「零筆」通常是使用量的問題，不是程式的問題。**
+
+**migration 006 已套用並往返驗證**：正向寫入 `selected` / `saved` /
+`segmentation` 全部 201；負向寫入 `bogus` 被 `23514` 擋下（證明 CHECK 是被
+重建的，不是被丟掉沒補回來）。
+
+### 📊 目前的量
+
+| | 筆數 | 備註 |
+| --- | --- | --- |
+| `captures` | 15 | 7 筆有逐字稿、**只有 1 筆有診斷** |
+| `replay_events` | 22 | screen 19 / lockscreen 3 |
+| `difficulty_items` | **1** | |
+| `practice_sessions` | 2 | |
+| **真實使用者** | **1 位** | 創辦人本人 |
+
+### ❌ 還沒發生的
 
 | 項目 | 狀態 |
 | --- | --- |
-| 真實使用者 | **1 位**（創辦人本人） |
-| `difficulty_items` | **0 筆**——核心閉環的後半段從沒完整跑完一次 |
-| migration 006 | **未套用到線上**。`selected` / `saved` / `segmentation` 三種來源在伺服器端一筆都沒有 |
-| `trigger_source='lockscreen'` | **0 筆**。ADR-0016 的位置推斷從 08-08 上線至今從未觸發 |
-| Mirror 音檔 | **一個都不存在**。那條播放路徑從未實際播放過 |
-| Live Activity | 1,160 行 Swift **從未編譯過**；`app.json` 未引用 |
+| 框選 / 標註詞加入練習 / 切分出口 | **一次都沒被用過**。`selection_kind` 全為 null、`selected` 與 `saved` 各 0 筆。功能在、006 也通了，但還沒實測 |
+| 通知答題 | 出不了題——`gloss_zh` / `distractors_zh` 尚無生產者。而且就算有，**15 筆裡只有 1 筆有診斷** |
+| Mirror 音檔 | **一個都不存在**。那條播放路徑從未實際播放過一次 |
+| Live Activity | 1,160 行 Swift **從未編譯過**（本機沒有 Xcode）；`app.json` 未引用，不在任何 binary 裡 |
 | 搭配詞（collocation） | 未納入六類分類 |
 | 英語程度估計 | 未實作。計劃見 §5 |
+
+### 一個貫穿全部的限制
+
+**N = 1。** 上面所有「有效」都只在一個人身上驗證過，而那個人是設計者本人。
+這不會讓那些數字變假，但它決定了它們能支撐什麼結論——**它們證明管線通了，
+不證明產品有用。**
 
 ---
 
