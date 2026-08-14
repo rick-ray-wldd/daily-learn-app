@@ -24,9 +24,13 @@ import {
 import { DEMO_EPISODES, Episode } from '../lib/episodes';
 import { PodcastSearchResult, searchPodcasts } from '../lib/podcastSearch';
 import { fetchAndParseFeed } from '../lib/rss';
-import { C as THEME } from '../lib/theme';
+import { C as THEME, ELEV, GLASS, LEVEL, LEVEL_UNKNOWN, R, SP, TYPE } from '../lib/theme';
+import { estimateLevel, type LevelEstimate } from '../lib/level';
+import { getSegments } from '../lib/transcript';
+import LevelChip from './LevelChip';
 import {
   addFeed,
+  getCaptures,
   getFeed,
   getFeedEpisodes,
   getFeeds,
@@ -34,6 +38,35 @@ import {
   setFeedEpisodes,
   subscribe,
 } from '../lib/store';
+
+/**
+ * 單集的難度帶。優先序見 `lib/level.ts`：實聽 > 逐字稿 > 類型。
+ *
+ * 「實聽分鐘數」用**這一集已經產生 capture 的最遠位置**當代理——我們沒有真正的
+ * 收聽時長紀錄（那要另一條 telemetry），但 `max(window_end)` 至少是「他至少聽到
+ * 這裡」的下界。低估比高估安全：低估會讓倒帶密度看起來偏高、等級偏難，而把一個
+ * 難的材料標成簡單才是真的會害到人。
+ */
+/**
+ * iTunes 的封面 URL 把尺寸寫在路徑裡（`.../100x100bb.jpg`），換掉就拿得到大圖。
+ * `podcastSearch` 優先取 `artworkUrl100`，那在 40px 的縮圖時代夠用，但放大到
+ * 72px 之後會糊——而封面現在是這個畫面的視覺主角。
+ *
+ * 比對不到就原樣回傳：Apple 之外的來源（有些 feed 自帶 `itunes:image`）路徑格式
+ * 不同，硬改會生出 404。
+ */
+function hiResArtwork(url: string): string {
+  return url.replace(/\/\d+x\d+bb\.(jpg|png)$/i, '/600x600bb.$1');
+}
+
+function episodeLevel(ep: Episode): LevelEstimate | null {
+  const mine = getCaptures().filter((c) => c.episode_id === ep.id);
+  const reach = mine.reduce((m, c) => Math.max(m, c.window_end), 0);
+  return estimateLevel({
+    segments: getSegments(ep.id),
+    listened: reach > 0 ? { rewinds: mine.length, minutes: reach / 60 } : undefined,
+  });
+}
 
 const MAX_WHISPER_BYTES = 25 * 1024 * 1024;
 const STALE_MS = 30 * 60 * 1000;
@@ -243,24 +276,34 @@ export default function PodcastBrowser({
               keyExtractor={(r) => `${r.collectionId}-${r.feedUrl}`}
               renderItem={({ item }) => {
                 const subscribed = Boolean(getFeed(item.feedUrl));
+                const lvl = estimateLevel({ genre: item.genre });
+                const tint = lvl ? LEVEL[lvl.level] : LEVEL_UNKNOWN;
                 return (
-                  <View style={styles.resultRow}>
+                  <View
+                    style={[
+                      styles.resultRow,
+                      { backgroundColor: tint.fill, borderColor: tint.edge },
+                    ]}
+                  >
                     {item.artworkUrl ? (
                       <Image
-                        source={{ uri: item.artworkUrl }}
+                        source={{ uri: hiResArtwork(item.artworkUrl) }}
                         style={styles.artwork}
                       />
                     ) : (
                       <View style={[styles.artwork, styles.artworkFallback]} />
                     )}
                     <View style={styles.resultMid}>
-                      <Text style={styles.resultTitle} numberOfLines={1}>
+                      <Text style={styles.resultTitle} numberOfLines={2}>
                         {item.title}
                       </Text>
                       <Text style={styles.resultSub} numberOfLines={1}>
                         {item.author}
                         {item.episodeCount ? ` · ${item.episodeCount} 集` : ''}
                       </Text>
+                      <View style={styles.resultChipRow}>
+                        <LevelChip estimate={lvl} />
+                      </View>
                     </View>
                     {subscribed ? (
                       <View style={[styles.subBtn, styles.subBtnDone]}>
@@ -325,9 +368,16 @@ export default function PodcastBrowser({
                   onPress={() => setSelectedFeedUrl(feed.feed_url)}
                   style={[styles.feedCard, selected && styles.feedCardSelected]}
                 >
-                  <Text style={styles.feedCardSub} numberOfLines={1}>
-                    {feed.author ?? 'podcast'}
-                  </Text>
+                  {/* 封面本來就存在 `Feed.artwork_url`，只是先前沒被畫出來——
+                      整排純文字卡是這個畫面最不吸引人的地方。 */}
+                  {feed.artwork_url ? (
+                    <Image
+                      source={{ uri: hiResArtwork(feed.artwork_url) }}
+                      style={styles.feedArt}
+                    />
+                  ) : (
+                    <View style={[styles.feedArt, styles.artworkFallback]} />
+                  )}
                   <Text
                     style={[
                       styles.feedCardTitle,
@@ -383,14 +433,26 @@ export default function PodcastBrowser({
                 !item.transcriptUrl &&
                 typeof item.enclosureBytes === 'number' &&
                 item.enclosureBytes > MAX_WHISPER_BYTES;
+              const lvl = episodeLevel(item);
+              const tint = lvl ? LEVEL[lvl.level] : LEVEL_UNKNOWN;
               return (
                 <Pressable
                   onPress={() => onSelectEpisode(item)}
                   style={[
                     styles.episodeItem,
+                    { backgroundColor: tint.fill, borderColor: tint.edge },
                     selected && styles.episodeItemSelected,
                   ]}
                 >
+                  {item.artworkUrl ? (
+                    <Image
+                      source={{ uri: hiResArtwork(item.artworkUrl) }}
+                      style={styles.episodeArt}
+                    />
+                  ) : (
+                    <View style={[styles.episodeArt, styles.artworkFallback]} />
+                  )}
+                  <View style={styles.episodeMid}>
                   <Text
                     style={[
                       styles.episodeItemTitle,
@@ -405,22 +467,22 @@ export default function PodcastBrowser({
                       {metaParts.join(' · ')}
                     </Text>
                   )}
-                  {(item.transcriptUrl || tooLong) && (
-                    <View style={styles.chipRow}>
-                      {item.transcriptUrl && (
-                        <View style={styles.chipTranscript}>
-                          <Text style={styles.chipText}>逐字稿</Text>
-                        </View>
-                      )}
-                      {tooLong && (
-                        <View style={styles.chipTooLong}>
-                          <Text style={styles.chipDimText}>
-                            此集太長暫不支援轉錄
-                          </Text>
-                        </View>
-                      )}
-                    </View>
-                  )}
+                  <View style={styles.chipRow}>
+                    <LevelChip estimate={lvl} />
+                    {item.transcriptUrl && (
+                      <View style={styles.chipTranscript}>
+                        <Text style={styles.chipText}>逐字稿</Text>
+                      </View>
+                    )}
+                    {tooLong && (
+                      <View style={styles.chipTooLong}>
+                        <Text style={styles.chipDimText}>
+                          此集太長暫不支援轉錄
+                        </Text>
+                      </View>
+                    )}
+                  </View>
+                  </View>
                 </Pressable>
               );
             }}
@@ -496,20 +558,24 @@ const styles = StyleSheet.create({
   noticeText: { color: C.dim, fontSize: 11, marginTop: 6 },
 
   resultsList: { flex: 1, marginTop: 10 },
+  // 底色與外框改由等級 tint 就地指定（inline），這裡只留版面。
   resultRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: C.card,
-    borderRadius: 10,
-    padding: 10,
-    marginBottom: 6,
-    gap: 10,
+    borderRadius: R.lg,
+    borderWidth: 1,
+    padding: SP(2.5),
+    marginBottom: SP(2),
+    gap: SP(3),
+    ...ELEV.card,
   },
-  artwork: { width: 40, height: 40, borderRadius: 8 },
-  artworkFallback: { backgroundColor: C.cardSelected },
-  resultMid: { flex: 1 },
-  resultTitle: { color: C.text, fontSize: 14, fontWeight: '700' },
-  resultSub: { color: C.dim, fontSize: 11, marginTop: 2 },
+  /** 72 而不是 40：封面是這個畫面的主角，縮圖尺寸讓它變成裝飾。 */
+  artwork: { width: 72, height: 72, borderRadius: R.md },
+  artworkFallback: { backgroundColor: GLASS.fill },
+  resultMid: { flex: 1, gap: 2 },
+  resultTitle: { ...TYPE.heading, fontSize: 15, color: C.text },
+  resultSub: { ...TYPE.caption, color: C.dim, fontWeight: '400' },
+  resultChipRow: { marginTop: SP(1) },
   subBtn: {
     minWidth: 64,
     alignItems: 'center',
@@ -530,14 +596,17 @@ const styles = StyleSheet.create({
   feedRow: { marginTop: 12, flexGrow: 0 },
   feedRowContent: { gap: 10 },
   feedCard: {
-    width: 110,
-    backgroundColor: C.card,
-    borderRadius: 12,
-    padding: 10,
+    width: 116,
+    backgroundColor: GLASS.fill,
+    borderRadius: R.lg,
+    padding: SP(2),
     borderWidth: 1,
-    borderColor: C.border,
+    borderColor: GLASS.edge,
+    ...ELEV.card,
   },
-  feedCardSelected: { backgroundColor: C.cardSelected, borderColor: C.primary },
+  feedCardSelected: { backgroundColor: GLASS.fillStrong, borderColor: C.primary },
+  /** 100×100 的方形封面，圓角比卡片小一階（卡片 lg、圖 md），內縮才不會頂邊。 */
+  feedArt: { width: 100, height: 100, borderRadius: R.md, marginBottom: SP(2) },
   feedCardSub: { color: C.dim, fontSize: 11, marginBottom: 4 },
   feedCardTitle: { color: C.dim, fontSize: 12, fontWeight: '600' },
   feedCardTitleSelected: { color: C.text },
@@ -546,17 +615,21 @@ const styles = StyleSheet.create({
 
   episodeList: { flex: 1, marginTop: 10 },
   episodeItem: {
-    backgroundColor: C.card,
-    borderRadius: 10,
+    flexDirection: 'row',
+    gap: SP(3),
+    borderRadius: R.lg,
     borderWidth: 1,
-    borderColor: C.border,
-    marginBottom: 6,
-    padding: 10,
+    marginBottom: SP(2),
+    padding: SP(2.5),
+    ...ELEV.card,
   },
+  /** 選中時邊框改成藍（中性 chrome＝「你在這裡」），底色蓋掉等級 tint。 */
   episodeItemSelected: {
-    backgroundColor: C.cardSelected,
+    backgroundColor: GLASS.fillStrong,
     borderColor: C.primary,
   },
+  episodeArt: { width: 56, height: 56, borderRadius: R.sm },
+  episodeMid: { flex: 1 },
   episodeItemTitle: { color: C.dim, fontSize: 13, fontWeight: '600' },
   episodeItemTitleSelected: { color: C.text },
   episodeMeta: {
