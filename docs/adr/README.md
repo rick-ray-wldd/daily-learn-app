@@ -28,3 +28,7 @@ covering the area they touch. Copy `0000-template.md` for new ones.
 | [0019](0019-home-tab-and-conditional-mini-player.md) | 首頁分頁：三分頁外殼，mini player 只在首頁以外常駐 | accepted |
 | [0020](0020-bento-over-masonry.md) | 首頁把 bento 與 masonry 上下疊，不並排也不交錯 | accepted |
 | [0021](0021-lock-screen-review-live-activity.md) | 鎖屏複習卡：原生碼放 `targets/` 由 config plugin 注入；按鈕走 App Intent；答題不推進 SRS | accepted |
+| [0022](0022-notification-quiz-and-srs-writeback.md) | 互動式通知出題沿用鎖屏出題器；答錯／想不起來單向寫入 SRS（收窄 ADR-0021⑤） | accepted |
+| [0023](0023-rewind-inference-instrumentation.md) | 鎖屏倒帶推斷先儀器化（記憶體環狀緩衝 + 開機探針），本輪不動三道閘的常數 | accepted |
+| [0024](0024-notification-as-launcher-not-listening.md) | 互動式通知是 Live Activity 的降級替身；職責是啟動器，不是聽力練習 | accepted |
+| [0025](0025-mirror-ladder-and-deferred-diagnosis.md) | Mirror 三層階梯用預生成原生慢速（非 `setPlaybackRate`）；診斷延後到他先作答 | accepted |

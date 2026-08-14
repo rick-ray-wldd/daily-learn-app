@@ -39,7 +39,16 @@ import { commitSavedTerm, isTermSaved } from './lib/selection';
 import { getSegments } from './lib/transcript';
 import { getCaptures, getSrsItems, initStore, rememberEpisode, subscribe } from './lib/store';
 import { isDue, toDateStr, todayStr } from './lib/srs';
-import { syncDailyReminder } from './lib/notifications';
+import {
+  getLastQuizStatus,
+  harvestQuizResponse,
+  QUIZ_KIND,
+  syncDailyReminder,
+  syncQuizNotifications,
+  type QuizOutcome,
+} from './lib/notifications';
+import type { QuizStatus } from './lib/quiz';
+import type { Capture } from './lib/types';
 import { C, R, SP, TYPE } from './lib/theme';
 import PracticeScreen from './screens/Practice';
 
@@ -87,6 +96,201 @@ const SEEK_SETTLE_MS = 1500;
  */
 const EXTERNAL_REWIND_MIN_SEC = 3;
 
+/* ───────────────────────────────────────────────────────────────────────────
+ * 儀器化（ADR-0023）—— 外部倒帶推斷的環狀緩衝與開機探針
+ *
+ * ADR-0016 的推斷 08-08 上線至今，`trigger_source='lockscreen'` **一筆都沒有**。
+ * 三道閘（時間窗、3 秒門檻、±1.5 秒位置比對）任何一道都可能吃掉真事件，而**沒有
+ * 資料就改門檻是瞎猜**——所以這一輪一個常數都不動，只讓判定過程可觀測：每一次
+ * 「位置往回跳」都留一筆帳，包含它被哪一道閘擋掉。
+ *
+ * 為什麼是記憶體而不是 store：這是實測期間的讀數，不是使用者資料。它的生命週期
+ * 就只有「這一次實測」，寫進 AsyncStorage 要新增 key、要處理遷移，代價與價值不成
+ * 比例。代價是 app 一關就清空——所以讀數要能在畫面上看到（DevProbes），使用者
+ * 實測完直接截圖回報。
+ * ─────────────────────────────────────────────────────────────────────────── */
+
+/** 一次實測抓得完的筆數；再大只是佔記憶體。 */
+const REWIND_PROBE_CAPACITY = 40;
+
+/** 「答對了」那一行留在畫面上的時間。它是回饋不是通知，不該常駐。 */
+const QUIZ_FEEDBACK_MS = 4000;
+
+type RewindVerdict =
+  /** 三道閘全過，已記成一筆 trigger_source='lockscreen'。 */
+  | 'logged'
+  /** 被閘②（SEEK_SETTLE_MS 時間窗）擋掉。 */
+  | 'settle-ms'
+  /** 被閘①（EXTERNAL_REWIND_MIN_SEC 門檻）擋掉。 */
+  | 'min-sec'
+  /** 被閘③（±SEEK_SETTLE_SEC 位置比對）擋掉。 */
+  | 'commanded';
+
+interface RewindProbe {
+  at_ms: number;
+  at_iso: string;
+  episode_id: string;
+  /** 上一格位置。 */
+  prev: number;
+  /** 這一格位置。 */
+  next: number;
+  /** prev - next，恆 > 0（往回跳才會進來）。 */
+  delta: number;
+  /** ignoreJumpUntilRef − now。> 0 代表當下還在時間窗內（被閘②擋）。 */
+  gate2_margin_ms: number;
+  commanded: number | null;
+  /** commanded 為 null 時是 null；否則 |next − commanded|。 */
+  gate3_dist: number | null;
+  verdict: RewindVerdict;
+  /** 前景誤判 vs 真鎖屏，只有這一欄分得出來。 */
+  app_state: string;
+  playing: boolean;
+  /** 0.7× 時死帶會位移；對不上時序多半就是漏了它。 */
+  rate: number;
+}
+
+const rewindProbes: RewindProbe[] = [];
+
+function pushRewindProbe(probe: RewindProbe): void {
+  rewindProbes.push(probe);
+  if (rewindProbes.length > REWIND_PROBE_CAPACITY) rewindProbes.shift();
+}
+
+/** 新到舊。回 readonly 是因為讀數只該被印出來，不該被誰改一改再印。 */
+function getRewindProbes(): readonly RewindProbe[] {
+  return rewindProbes.slice().reverse();
+}
+
+/**
+ * 開機時「鎖屏控制項到底啟用了沒」的量測。
+ *
+ * 這一筆回答的是一個三道閘都解釋不了的假設：**這台手機上跑的 binary 可能根本
+ * 沒有 `setActiveForLockScreen`**。`expo-audio` 2026-08-04 才從 `~57.0.0` 拉到
+ * `~57.0.3`、鎖屏那段程式碼 08-08 才寫，而 `runtimeVersion.policy: 'sdkVersion'`
+ * **不指紋化原生模組**——所以新的 JS bundle 一定會被推到還沒有那顆原生函式的舊
+ * build 上（與 `lib/selection.ts` 檔頭的「JS 一定比 SQL 早到」同一類風險）。
+ * 沒有這一筆，`lockscreen` 0 筆永遠查不出來是「被閘擋掉」還是「壓根沒啟用」。
+ */
+interface AudioBootProbe {
+  /** null = 還沒跑完。 */
+  audio_mode_ok: boolean | null;
+  /** `typeof player.setActiveForLockScreen`——'function' 以外都代表 binary 太舊。 */
+  lock_screen_fn: string;
+  lock_screen_ok: boolean | null;
+  error: string | null;
+  at_iso: string | null;
+}
+
+/** 一個 process 只開機一次，所以是模組層單例而不是 state。 */
+const audioBootProbe: AudioBootProbe = {
+  audio_mode_ok: null,
+  lock_screen_fn: '未量測',
+  lock_screen_ok: null,
+  error: null,
+  at_iso: null,
+};
+
+function errText(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+/**
+ * 清掉原生模組手上的「最後一次通知回應」。
+ *
+ * 同步版（`clearLastNotificationResponseAsync` 在 57.0.8 已標 deprecated）。舊
+ * binary 上這支不存在會丟 UnavailabilityError，所以包起來：少一層冪等保護不至於
+ * 算錯帳（收割端自己還有兩層），但為了它 crash 是不成比例的代價。
+ */
+function clearLastResponse(): void {
+  try {
+    Notifications.clearLastNotificationResponse();
+  } catch (err) {
+    console.warn('[notifications] clearLastNotificationResponse unavailable:', err);
+  }
+}
+
+/**
+ * 今日佇列的三桶 + 徽章數字。
+ *
+ * badge = 正式佇列數：昨天以前的 pending + confirmed 但沒評分過的孤兒卡 + 到期
+ * SRS 複習；今天剛抓的 pending 不算——收在練習頁的「搶先練」。規則與 Practice.tsx
+ * 的佇列建構一致，**兩邊的過濾條件必須逐字一致**。
+ *
+ * 逐字稿框選產生的 capture 不需要在這裡加任何東西就會被算到：commitSelection 走的
+ * 是 store 的 upsertCapture，而它結尾會 notify() → App 的 subscribe 就重算。
+ *
+ * ⚠️ 但它**當天不該進徽章**。框選出來的 capture 一出生就是 'confirmed'，會直接落進
+ * orphanConfirmed 那一桶；如果不擋日期，圈完字的當下徽章就 +1，可是練習頁已經把
+ * 同一天的 capture 分流到「搶先練」而不是正式佇列（ADR-0011）——徽章說有 3 張、
+ * 點進去正式佇列是空的，那是最傷信任的一種不一致。所以兩桶都要過同一道 `< today`。
+ *
+ * 🔴 **本輪只把 count 換成陣列，語意一格都不准變。** `dueReviews` 目前不過濾
+ * `capture.status`（與 Practice.tsx 有已知落差），而且 `badge` 仍用**到期 SRS 的
+ * 筆數**算——即使某一筆對不到本地 capture（陣列版會丟掉它）。所以
+ * `dueReviews.length` 可能小於 badge 裡的那一項，**這是刻意的**：改成
+ * `dueReviews.length` 會動到徽章數字，那是另一輪的題目。
+ */
+interface TodayBuckets {
+  /** 昨天以前的 pending。 */
+  officialPending: Capture[];
+  /** 昨天以前 confirmed 且無 SRS item。 */
+  orphanConfirmed: Capture[];
+  /** 到期 SRS 且不在 pendingIds、而且對得到本地 capture 的。 */
+  dueReviews: Capture[];
+  /** 三桶相加（dueReviews 那一項用**到期筆數**，見上面的鐵律）。 */
+  badge: number;
+}
+
+function computeTodayBuckets(): TodayBuckets {
+  const today = todayStr();
+  const captures = getCaptures();
+  const byId = new Map(captures.map((c) => [c.id, c]));
+
+  const pendingAll = captures.filter((c) => c.status === 'pending');
+  const pendingIds = new Set(pendingAll.map((c) => c.id));
+  const officialPending = pendingAll.filter(
+    (c) => toDateStr(new Date(c.created_at)) < today,
+  );
+
+  const srsItems = getSrsItems();
+  const srsIds = new Set(srsItems.map((i) => i.capture_id));
+  // 上次按了「真的沒聽懂」但沒評分就離開的卡（confirmed 且無 SRS item），以及昨天
+  // 以前框選的、以及昨天以前**加入練習的標註詞**（strength 'saved'，一出生就是
+  // confirmed，走的是同一桶）。今天的三者都歸「搶先練」，不算正式佇列。
+  //
+  // saved **要**進正式佇列，理由與框選同一條：它是「他想學什麼」，而練習頁的職責
+  // 就是把想學的東西隔天送回他面前；排除它等於做了一顆按了不會發生任何事的按鈕。
+  // 它與訊號指標的分界（那裡一律排除 saved）不衝突——佇列問的是「練什麼」，指標問
+  // 的是「他哪裡聽不懂」，兩個問題本來就不同。
+  const orphanConfirmed = captures.filter(
+    (c) =>
+      c.status === 'confirmed' &&
+      !srsIds.has(c.id) &&
+      toDateStr(new Date(c.created_at)) < today,
+  );
+
+  const dueItems = srsItems.filter((i) => isDue(i) && !pendingIds.has(i.capture_id));
+  const dueReviews = dueItems
+    .map((i) => byId.get(i.capture_id))
+    .filter((c): c is Capture => c !== undefined);
+
+  return {
+    officialPending,
+    orphanConfirmed,
+    dueReviews,
+    badge: officialPending.length + orphanConfirmed.length + dueItems.length,
+  };
+}
+
+/**
+ * 出題用的佇列。順序固定：正式 pending → 孤兒 confirmed → 到期複習。
+ * **這是全 app 第二份也是最後一份今日佇列**（`liveActivity.ts` 鐵律②）——
+ * `quiz.ts` / `notifications.ts` 都不准自己查 store 再算一次。
+ */
+function quizQueue(buckets: TodayBuckets): Capture[] {
+  return [...buckets.officialPending, ...buckets.orphanConfirmed, ...buckets.dueReviews];
+}
+
 export default function App() {
   const [tab, setTab] = useState<TabKey>('home');
   const [practiceBadge, setPracticeBadge] = useState(0);
@@ -106,6 +310,15 @@ export default function App() {
   const [nowPlayingOpen, setNowPlayingOpen] = useState(false);
   const [transcriptOpen, setTranscriptOpen] = useState(false);
   const [activeTerm, setActiveTerm] = useState<Term | null>(null);
+  /**
+   * 環狀緩衝與開機探針都在模組層（不是 state），React 不會因為它們被寫入而重繪。
+   * 這個計數器就是唯一的重繪訊號。倒帶事件本來就稀少，每筆一次 render 可以接受。
+   */
+  const [probeVersion, setProbeVersion] = useState(0);
+  /** 上一次排程結果。初值讀模組層的快取，讓還沒 sync 完的那幾百毫秒也有東西可印。 */
+  const [quizStatus, setQuizStatus] = useState<QuizStatus | null>(() => getLastQuizStatus());
+  /** 剛從通知按鈕收割回來的那一筆，只顯示一行、幾秒後自己消失。 */
+  const [quizFeedback, setQuizFeedback] = useState<QuizOutcome | null>(null);
 
   // source 恆為 null → useAudioPlayer 內部的 useReleasingSharedObject dep
   // (JSON.stringify(source)) 恆定，player 實例永不重建。單集載入（初始與
@@ -148,6 +361,12 @@ export default function App() {
     artworkUrl: episode.artworkUrl,
   });
 
+  /** 探針寫完之後蓋時間戳 + 逼一次重繪（探針在模組層，React 看不到它變了）。 */
+  const stampBootProbe = () => {
+    audioBootProbe.at_iso = new Date().toISOString();
+    setProbeVersion((v) => v + 1);
+  };
+
   // iOS: keep playing with the mute switch on; don't mix with other audio.
   useEffect(() => {
     setAudioModeAsync({
@@ -174,12 +393,39 @@ export default function App() {
          * 鎖定畫面的往回幅度與 app 內的 ↺15 不一致。這不影響訊號本身——難點
          * 窗口是從 fromPos 往回算的（captureEngine），跟跳了幾秒無關。
          */
-        playerRef.current.setActiveForLockScreen(true, lockScreenMetaRef.current, {
-          showSeekBackward: true,
-          showSeekForward: true,
-        });
+        audioBootProbe.audio_mode_ok = true;
+        /**
+         * 🔴 **這一段自己 try/catch**，不能靠外層那個 `.catch`。
+         *
+         * 原本兩件事共用一個 `.catch(err => console.warn('[audio] setAudioModeAsync
+         * failed:', err))`——`setActiveForLockScreen` 一 throw 就會被報成
+         * 「setAudioModeAsync 壞了」。那是「鎖屏 0 筆」到今天查不出來的直接成因：
+         * 訊息指向一個根本沒出事的函式。
+         *
+         * 先記 `typeof` 再呼叫：舊 binary 上這顆函式是 undefined，呼叫會丟
+         * TypeError，而「函式不存在」與「函式失敗」是完全不同的結論。
+         */
+        try {
+          audioBootProbe.lock_screen_fn = typeof playerRef.current.setActiveForLockScreen;
+          playerRef.current.setActiveForLockScreen(true, lockScreenMetaRef.current, {
+            showSeekBackward: true,
+            showSeekForward: true,
+          });
+          audioBootProbe.lock_screen_ok = true;
+        } catch (err) {
+          audioBootProbe.lock_screen_ok = false;
+          audioBootProbe.error = `[lockScreen] ${errText(err)}`;
+          console.warn('[audio] setActiveForLockScreen failed:', err);
+        }
+        stampBootProbe();
       })
-      .catch((err) => console.warn('[audio] setAudioModeAsync failed:', err));
+      .catch((err) => {
+        audioBootProbe.audio_mode_ok = false;
+        audioBootProbe.error = `[audioMode] ${errText(err)}`;
+        console.warn('[audio] setAudioModeAsync failed:', err);
+        stampBootProbe();
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // 使用者主動選集才自動播；開 app 停在第一集不該直接出聲。
@@ -234,61 +480,31 @@ export default function App() {
     void ensureSession();
   }, []);
 
-  // Hydrate the local store and keep the practice-tab badge in sync
-  // (badge = 正式佇列數：昨天以前的 pending + confirmed 但沒評分過的孤兒卡
-  // + 到期 SRS 複習；今天剛抓的 pending 不算——收在練習頁的「搶先練」)。
-  // 規則與 Practice.tsx 的佇列建構一致。
+  // Hydrate the local store, keep the practice-tab badge in sync（規則見
+  // computeTodayBuckets 的檔頭），並把同一份佇列餵給每日提醒與題目通知。
   //
-  // 逐字稿框選產生的 capture 不需要在這裡加任何東西就會被算到：commitSelection
-  // 走的是 store 的 upsertCapture，而它結尾會 notify() → 底下這個 subscribe 就重算。
-  //
-  // ⚠️ 但它**當天不該進徽章**。框選出來的 capture 一出生就是 'confirmed'，會直接
-  // 落進 orphanConfirmed 那一桶；如果不擋日期，圈完字的當下徽章就 +1，可是練習頁
-  // 已經把同一天的 capture 分流到「搶先練」而不是正式佇列（ADR-0011）——徽章說有
-  // 3 張、點進去正式佇列是空的，那是最傷信任的一種不一致。所以兩桶都要過同一道
-  // `< today`。
-  //
-  // 這裡是 Practice.tsx 佇列建構的孿生實作，**兩邊的過濾條件必須逐字一致**。
+  // **佇列只算在這裡一處。** quiz.ts / notifications.ts 不准自己查 store 再算一次
+  // （liveActivity.ts 鐵律②：那會是第三份實作，保證重演「徽章說有 3 張、點進去是
+  // 空的」）。
   useEffect(() => {
-    const computeBadge = () => {
-      const today = todayStr();
-      const captures = getCaptures();
-      const pendingAll = captures.filter((c) => c.status === 'pending');
-      const pendingIds = new Set(pendingAll.map((c) => c.id));
-      const officialPending = pendingAll.filter(
-        (c) => toDateStr(new Date(c.created_at)) < today,
-      ).length;
-      const srsItems = getSrsItems();
-      const srsIds = new Set(srsItems.map((i) => i.capture_id));
-      // 上次按了「真的沒聽懂」但沒評分就離開的卡（confirmed 且無 SRS item），
-      // 以及昨天以前框選的、以及昨天以前**加入練習的標註詞**（strength 'saved'，
-      // 一出生就是 confirmed，走的是同一桶）。今天的三者都歸「搶先練」，不算正式
-      // 佇列。
-      //
-      // saved **要**進正式佇列，理由與框選同一條：它是「他想學什麼」，而練習頁的
-      // 職責就是把想學的東西隔天送回他面前；排除它等於做了一顆按了不會發生任何事
-      // 的按鈕。它與訊號指標的分界（那裡一律排除 saved）不衝突——佇列問的是「練
-      // 什麼」，指標問的是「他哪裡聽不懂」，兩個問題本來就不同。它在佇列裡排最後
-      // （Practice.tsx 的 STRENGTH_RANK: saved = 3），真正有理解斷點的卡先練。
-      const orphanConfirmed = captures.filter(
-        (c) =>
-          c.status === 'confirmed' &&
-          !srsIds.has(c.id) &&
-          toDateStr(new Date(c.created_at)) < today,
-      ).length;
-      const dueReviews = srsItems.filter(
-        (i) => isDue(i) && !pendingIds.has(i.capture_id),
-      ).length;
-      setPracticeBadge(officialPending + orphanConfirmed + dueReviews);
+    const refreshBadge = () => setPracticeBadge(computeTodayBuckets().badge);
+    /** 重算佇列 → 重排題目通知。內部有 10 分鐘 + 日期節流，多呼叫幾次是安全的。 */
+    const resyncQuiz = () => {
+      const buckets = computeTodayBuckets();
+      setPracticeBadge(buckets.badge);
+      void syncQuizNotifications(quizQueue(buckets)).then(setQuizStatus);
     };
     void initStore().then(() => {
-      computeBadge();
+      resyncQuiz();
       void syncDailyReminder(); // app 開啟時重排（冪等，內部已去重）
     });
-    const unsubscribe = subscribe(computeBadge);
-    // 跨午夜回前景時日界線變了 → 重算 badge（今天的 pending 變成昨天的）。
+    // ⚠️ subscribe 的回呼**只重算 badge**：store 每次 notify 都排一次通知會變成
+    // I/O 風暴（框選一次就 upsert 一次）。
+    const unsubscribe = subscribe(refreshBadge);
+    // 跨午夜回前景時日界線變了 → 重算 badge（今天的 pending 變成昨天的），順便讓
+    // 題目通知跟上新的一天。
     const appStateSub = AppState.addEventListener('change', (s) => {
-      if (s === 'active') computeBadge();
+      if (s === 'active') resyncQuiz();
     });
     return () => {
       unsubscribe();
@@ -296,17 +512,88 @@ export default function App() {
     };
   }, []);
 
-  // 點每日提醒 → 直接落在練習頁（player 經 ref 取用，避免閉包抓住舊實例）
+  /**
+   * 通知回應的唯一入口。兩條路都要接：
+   *
+   *   - **listener**：app 已經活著的時候（前景／背景 warm start）。
+   *   - **getLastNotificationResponse()**：**冷啟動**那一次。原本只掛 listener，
+   *     所以「app 被殺 → 點通知」這條路徑的回應整個收不到——每日提醒的導頁也一樣
+   *     漏，只是沒人注意到而已。
+   *
+   * 題目通知的按鈕全部 `opensAppToForeground: true`（見 notifications.ts）：killed
+   * app 要在按鈕當下跑 JS 得用 `registerTaskAsync` 背景任務，而 JS 在那個窗口不保證
+   * 跑得完（expo #36282 至今未解）。所以答案不是在按下的當下處理，而是**把 app 帶到
+   * 前景、再從這裡讀回來**——這是唯一可靠的路徑，不是偷懶。
+   */
   useEffect(() => {
     if (Platform.OS === 'web') return;
-    const sub = Notifications.addNotificationResponseReceivedListener(() => {
+
+    const handle = (response: Notifications.NotificationResponse) => {
+      const kind = (response.notification.request.content.data as { kind?: string } | null)
+        ?.kind;
+
+      /**
+       * 冪等的第二層，**兩條分支都要做**（不能只做題目那條）。
+       *
+       * 原生模組的 lastResponse 會**跨啟動留著**，直到有人清掉它。官方文件對
+       * `clearLastNotificationResponse` 的說明就是這個情境：「當 app 依通知回應
+       * 選擇路由、而該回應已經處理完之後，不該再繼續選那個路由。」
+       *
+       * 少了這一行的後果分兩種，兩種都是真的會發生：
+       *   - 每日提醒：點過一次之後，**之後每一次手動冷啟動**都會重播那一筆——
+       *     使用者只是想開 app 聽 podcast，卻被暫停播放、關掉覆蓋層、甩到練習頁。
+       *   - 題目通知：`seenQuizKeys` 是模組層的（process 一重啟就空），所以同一個
+       *     答案會在下一次冷啟動被重新收割，對同一張卡再寫一次 'again'。
+       * 這一行必須在分支**之前**：它與「這是哪一種通知」無關，是「這一筆已經處理
+       * 過了」的意思。
+       */
+      clearLastResponse();
+
+      if (kind === QUIZ_KIND) {
+        void harvestQuizResponse(response).then((outcome) => {
+          // null = 重複收割或解析不出來 → 什麼都不顯示，也什麼都不做。
+          if (outcome) setQuizFeedback(outcome);
+        });
+        /**
+         * **按答題按鈕不暫停播放、不關覆蓋層、不切分頁。** 按鈕已經把 app 帶到前景
+         * （那本身就夠打擾了），再把他正在聽的東西按停、把畫面換掉，代價遠大於一行
+         * 回饋的價值。只有點通知本體（DEFAULT）才導頁，語意與每日提醒相同。
+         */
+        if (response.actionIdentifier === Notifications.DEFAULT_ACTION_IDENTIFIER) {
+          playerRef.current.pause();
+          setNowPlayingOpen(false);
+          setTranscriptOpen(false);
+          setTab('practice');
+        }
+        return;
+      }
+
+      // 既有行為：每日提醒（或任何非題目通知）→ 落在練習頁。
       playerRef.current.pause();
       setNowPlayingOpen(false);
       setTranscriptOpen(false);
       setTab('practice');
-    });
+    };
+
+    // 舊 binary 上這兩支是 UnavailabilityError（JS bundle 一定比原生早到），
+    // 所以包起來：收不到答案是可惜，把 app 弄 crash 是災難。
+    try {
+      const last = Notifications.getLastNotificationResponse(); // 冷啟動那一次
+      if (last) handle(last);
+    } catch (err) {
+      console.warn('[notifications] getLastNotificationResponse unavailable:', err);
+    }
+    const sub = Notifications.addNotificationResponseReceivedListener(handle);
     return () => sub.remove();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // 回饋只是一行字，4 秒後自己消失（它不是通知，不該常駐在畫面上）。
+  useEffect(() => {
+    if (!quizFeedback) return;
+    const id = setTimeout(() => setQuizFeedback(null), QUIZ_FEEDBACK_MS);
+    return () => clearTimeout(id);
+  }, [quizFeedback]);
 
   // 播放位置追上目標了 → 把進度條交還給 status。
   useEffect(() => {
@@ -374,13 +661,56 @@ export default function App() {
   useEffect(() => {
     const prev = lastTimeRef.current;
     lastTimeRef.current = currentTime;
-    if (Date.now() < ignoreJumpUntilRef.current) return;
-    if (prev - currentTime < EXTERNAL_REWIND_MIN_SEC) return;
-    // 自家的 seek 遲到才生效（音檔還在載入時送出的）會落在保險絲之外。認位置比認
-    // 時間可靠：寧可漏記一筆，也不要無中生有——幻覺事件會替一句學習者從沒重聽過的
-    // 話建出 capture，那比少一筆更傷。
+
+    const delta = prev - currentTime;
+    // **連 0.1 秒的抖動都收**（判定順序與三道閘完全不變，只是每個 early return 之前
+    // 先留一筆帳）。門檻設在 0 以上是儀器化的關鍵：只有全收，才分得出「被閘擋掉」
+    // 與「跳動根本沒送到 JS」——後者代表問題在更上游（鎖屏控制項壓根沒啟用），
+    // 那是調任何門檻都救不回來的。
+    if (delta <= 0) return;
+
+    const now = Date.now();
+    const gate2MarginMs = ignoreJumpUntilRef.current - now;
     const commanded = lastCommandedRef.current;
-    if (commanded !== null && Math.abs(currentTime - commanded) <= SEEK_SETTLE_SEC) return;
+    const gate3Dist = commanded === null ? null : Math.abs(currentTime - commanded);
+
+    const record = (verdict: RewindVerdict) => {
+      pushRewindProbe({
+        at_ms: now,
+        at_iso: new Date(now).toISOString(),
+        episode_id: episode.id,
+        prev,
+        next: currentTime,
+        delta,
+        gate2_margin_ms: gate2MarginMs,
+        commanded,
+        gate3_dist: gate3Dist,
+        verdict,
+        app_state: AppState.currentState,
+        playing: status.playing,
+        rate,
+      });
+      setProbeVersion((v) => v + 1);
+    };
+
+    // 閘②：seekTo 開的時間窗內，位置跳動一律當成自家造成的。
+    if (gate2MarginMs > 0) {
+      record('settle-ms');
+      return;
+    }
+    // 閘①：小於 3 秒的位置變動是緩衝抖動或微調拖曳，不是「我沒聽懂」。
+    if (delta < EXTERNAL_REWIND_MIN_SEC) {
+      record('min-sec');
+      return;
+    }
+    // 閘③：自家的 seek 遲到才生效（音檔還在載入時送出的）會落在保險絲之外。認位置比
+    // 認時間可靠：寧可漏記一筆，也不要無中生有——幻覺事件會替一句學習者從沒重聽過的
+    // 話建出 capture，那比少一筆更傷。
+    if (gate3Dist !== null && gate3Dist <= SEEK_SETTLE_SEC) {
+      record('commanded');
+      return;
+    }
+    record('logged');
     logReplayEvent(prev, currentTime, 'lockscreen');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentTime]);
@@ -537,6 +867,9 @@ export default function App() {
 
   const loadState = status.isLoaded ? (status.isBuffering ? '緩衝中…' : null) : '載入音檔中…';
 
+  // 緩衝在模組層、React 看不到它變了，所以重繪的依據是 probeVersion 而不是陣列本身。
+  const probes = useMemo(() => getRewindProbes(), [probeVersion]);
+
   return (
     <View style={styles.root}>
       <StatusBar style="light" />
@@ -560,6 +893,13 @@ export default function App() {
 
         {/* 現在跑的是哪一顆 bundle。OTA 送達與否在畫面上看不出來，只能把它印出來。 */}
         <UpdateStatus />
+
+        {/* 剛剛在通知上按的那一題。綠色只出現在這裡——那是**他**答的。 */}
+        <QuizFeedback outcome={quizFeedback} />
+
+        {/* 倒帶推斷與題目排程的自我報告。UpdateStatus 沒有 owner，所以這塊自己長在
+            外殼裡，視覺規格照抄它（收合一行、caption、C.faint）。 */}
+        <DevProbes probes={probes} boot={audioBootProbe} quiz={quizStatus} />
 
         <View style={styles.tabContent}>
           {tab === 'home' ? (
@@ -694,6 +1034,162 @@ export default function App() {
   );
 }
 
+/* ───────────────────────────────────────────────────────────────────────────
+ * 開發期讀數。**這一塊只用 C.dim / C.faint / C.highlightInk**——它是 chrome 與
+ * app 的自我報告，不是學習者的動作。綠色只留給下面那一行「答對了」。
+ * ─────────────────────────────────────────────────────────────────────────── */
+
+/** 展開後印幾筆倒帶。12 筆一個畫面截得下，也夠看出一次實測的節奏。 */
+const PROBE_ROWS = 12;
+
+const APP_STATE_SHORT: Record<string, string> = {
+  active: 'fg',
+  background: 'bg',
+  inactive: 'ina',
+};
+
+function flag(v: boolean | null): string {
+  return v === null ? '…' : v ? 'ok' : 'fail';
+}
+
+function clockTime(atMs: number): string {
+  const d = new Date(atMs);
+  const p = (n: number) => `${n}`.padStart(2, '0');
+  return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+}
+
+/** 被哪一道閘擋掉。三道閘的數字一起印出來，才看得出「差多少就過了」。 */
+function verdictText(p: RewindProbe): string {
+  switch (p.verdict) {
+    case 'logged':
+      return '已記錄';
+    case 'settle-ms':
+      return `閘②時間窗 ${Math.round(p.gate2_margin_ms)}ms`;
+    case 'min-sec':
+      return `閘①<${EXTERNAL_REWIND_MIN_SEC}s`;
+    case 'commanded':
+      return `閘③ |Δ|=${(p.gate3_dist ?? 0).toFixed(1)}`;
+  }
+}
+
+function probeLine(p: RewindProbe): string {
+  const where = APP_STATE_SHORT[p.app_state] ?? p.app_state;
+  // 暫停時的往回跳很不尋常（多半是換集或載入），標出來；播放中是常態，不加噪音。
+  const paused = p.playing ? '' : ' 暫停';
+  return `${clockTime(p.at_ms)}  −${p.delta.toFixed(1)}s  ${verdictText(p)}  ${where} ${p.rate}×${paused}`;
+}
+
+function DevProbes({
+  probes,
+  boot,
+  quiz,
+}: {
+  probes: readonly RewindProbe[];
+  boot: AudioBootProbe;
+  quiz: QuizStatus | null;
+}) {
+  const [open, setOpen] = useState(false);
+  // 'function' 以外就是這顆 binary 沒有那支原生函式——那比任何一道閘更能解釋
+  // 「lockscreen 0 筆」，所以它要在收合狀態就變色。
+  const bootBad =
+    boot.lock_screen_fn !== 'function' ||
+    boot.audio_mode_ok === false ||
+    boot.lock_screen_ok === false;
+
+  return (
+    <View>
+      <Pressable onPress={() => setOpen((v) => !v)} hitSlop={8} style={styles.probeToggleRow}>
+        <Text style={[styles.probeToggle, bootBad && styles.probeToggleWarn]}>
+          {`倒帶 ${probes.length} 筆 · 題目 ${quiz?.scheduled ?? 0}`}
+        </Text>
+      </Pressable>
+
+      {open && (
+        <View style={styles.probeCard}>
+          <Text style={bootBad ? styles.probeWarn : styles.probeLine}>
+            {`鎖屏 API ${boot.lock_screen_fn} · audioMode ${flag(boot.audio_mode_ok)} · setActive ${flag(boot.lock_screen_ok)}`}
+          </Text>
+          {boot.error !== null && <Text style={styles.probeWarn}>{boot.error}</Text>}
+
+          {/* 「今天為什麼沒有題目」。今天的正確答案就是「沒有 gloss_zh 所以不出題」——
+              沒有這一行，使用者會以為功能壞了。 */}
+          <Text style={styles.probeLine}>{quiz?.summary_zh ?? '尚未檢查'}</Text>
+
+          {probes.length === 0 ? (
+            <Text style={styles.probeLine}>
+              還沒偵測到任何位置回跳（連 0.1 秒的抖動都會記）
+            </Text>
+          ) : (
+            probes.slice(0, PROBE_ROWS).map((p, i) => (
+              <Text
+                key={`${p.at_ms}-${i}`}
+                style={p.verdict === 'logged' ? styles.probeMono : styles.probeMonoWarn}
+              >
+                {probeLine(p)}
+              </Text>
+            ))
+          )}
+          {/* 沒有複製按鈕：clipboard 要新套件，本輪禁令。實測完截圖回報即可。 */}
+        </View>
+      )}
+    </View>
+  );
+}
+
+/** 剛剛在通知按鈕上答的那一題。滑掉／點通知本體不顯示——那兩個不是答案。 */
+function QuizFeedback({ outcome }: { outcome: QuizOutcome | null }) {
+  if (!outcome) return null;
+  const line = quizFeedbackText(outcome);
+  if (!line) return null;
+  return <Text style={[styles.quizFeedback, { color: line.color }]}>{line.text}</Text>;
+}
+
+function quizFeedbackText(o: QuizOutcome): { text: string; color: string } | null {
+  if (o.action === 'dismiss' || o.action === 'tap') return null;
+
+  // 綠＝學習者動手了。**全 app 只有這一行的綠色是這個意思**，儀表區其餘一律 dim。
+  if (o.action === 'answer' && o.correct) {
+    return {
+      text: o.correct_label_zh ? `答對了 · ${o.correct_label_zh}` : '答對了',
+      color: C.accent,
+    };
+  }
+
+  // 「今天會再出現一次」是對 SRS 的承諾，**只有真的寫回去了才敢講**。寫不回去是
+  // 真的會發生的，而且不只一種原因——所以尾巴那句話要看 `srs_skip` 講對是哪一種，
+  // 不能一律說「這張卡不在今天的佇列裡」（對一張 pending 的卡那就是句謊話）。
+  const tail = o.srs_written ? '今天會再出現一次' : skipTailZh(o.srs_skip);
+
+  if (o.action === 'unknown') {
+    return o.srs_written
+      ? { text: `記下來了 · ${tail}`, color: C.dim }
+      : { text: `想不起來 · ${tail}`, color: C.highlightInk };
+  }
+  const label = o.correct_label_zh ?? '—';
+  // 琥珀＝app 在講自己的判斷（正解是我們給的）。
+  return { text: `正解是 ${label} · ${tail}`, color: C.highlightInk };
+}
+
+/** 沒推進 SRS 時，尾巴那句話。**每一句都要是當下真的成立的事實。** */
+function skipTailZh(skip: QuizOutcome['srs_skip']): string {
+  switch (skip) {
+    case 'stale-deck':
+      return '這是昨天的題目，沒有動今天的排程';
+    case 'card-missing':
+      return '這張卡不在這台裝置上';
+    // pending 的卡沒有推進 SRS，但它**確實**每天都在正式佇列裡——所以這句話講的是
+    // 「去練習頁」，不是「今天會再出現一次」（後者是對 SRS 的承諾，這裡沒有寫）。
+    case 'card-unconfirmed':
+      return '這張卡還沒確認，練習頁裡有它';
+    case 'card-dismissed':
+      return '你已經把這張卡標成分心，不再排它';
+    case 'write-failed':
+      return '這次沒記錄成功';
+    default:
+      return '沒有記錄這一筆';
+  }
+}
+
 const styles = StyleSheet.create({
   // 上緣留白給 `screen` 自己吃，不放在 root：覆蓋層是 root 的絕對定位子層，
   // 而 RN 的 top:0 是對齊父層的 **padding box**，root 有 paddingTop 的話覆蓋層
@@ -709,6 +1205,28 @@ const styles = StyleSheet.create({
   syncDotOff: { backgroundColor: C.faint },
   syncText: { ...TYPE.caption, color: C.dim, fontWeight: '400' },
   tabContent: { flex: 1 },
+
+  // 讀數區。整組照抄 UpdateStatus 的視覺規格（收合一行、caption、C.faint；
+  // 展開是 surface + R.md + border 的卡片），兩塊讀數並排時才不會像兩個系統。
+  probeToggleRow: { alignSelf: 'flex-end', marginTop: SP(1) },
+  probeToggle: { ...TYPE.caption, color: C.faint, fontWeight: '400' },
+  probeToggleWarn: { color: C.highlightInk },
+  probeCard: {
+    marginTop: SP(2),
+    backgroundColor: C.surface,
+    borderRadius: R.md,
+    borderWidth: 1,
+    borderColor: C.border,
+    padding: SP(3),
+    gap: SP(1.5),
+  },
+  probeLine: { ...TYPE.caption, color: C.dim, fontWeight: '400' },
+  probeWarn: { ...TYPE.caption, color: C.highlightInk, fontWeight: '400' },
+  // 數字要對齊才看得出「跳幅是不是每次都一樣」，所以走 mono（tabular-nums）。
+  probeMono: { ...TYPE.mono, color: C.dim, fontWeight: '400' },
+  probeMonoWarn: { ...TYPE.mono, color: C.highlightInk, fontWeight: '400' },
+
+  quizFeedback: { ...TYPE.caption, marginTop: SP(1), fontWeight: '400' },
 
   tabBar: {
     flexDirection: 'row',

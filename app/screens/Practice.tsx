@@ -6,7 +6,8 @@
  * 每張卡的流程（signal-design.md §3：把雜訊過濾變成複習的第一步）：
  *   a. 重聽 context 窗口（1x / 0.7x，到 context_end 自動停）——**永遠可按**
  *   b. 確認：「真的沒聽懂」→ confirmed／「只是分心」→ dismissed（雜訊標註）
- *   c. 逐字稿**漸進式揭露**（線索 → 首字母 → 全文）＋ Claude 診斷卡（無 key 時降級）
+ *   c. 逐字稿**漸進式揭露**（線索 → 首字母 → 全文）→ 先問「你覺得卡在哪」→ 才展開
+ *      Claude 診斷卡（無 key 時降級）
  *   d. 跟讀錄音（expo-audio recorder），可與原音對照
  *   e. 評分 再來一次/記住了/太簡單 → 簡化 SM-2 → 下一張
  *
@@ -69,6 +70,11 @@ import {
 } from '../lib/srs';
 import { computeStreak, computeWeaknessStats } from '../lib/stats';
 import { syncDailyReminder } from '../lib/notifications';
+import {
+  checkMirrorAssets,
+  deriveMirrorPaths,
+  MIRROR_ELIGIBLE_STRENGTHS,
+} from '../lib/mirrorAudio';
 import { Capture, CaptureStrength } from '../lib/types';
 import Glass from '../components/Glass';
 import Gradient from '../components/Gradient';
@@ -99,6 +105,97 @@ type TranscriptPhase =
  * full 才出現。
  */
 type RevealStage = 'clue' | 'hint' | 'full';
+
+/**
+ * Mirror 三層音訊階梯的素材狀態。
+ *
+ *   ① Mirror·分塊  塊內原速 + thought group 邊界停頓   ← 教學價值最高
+ *   ② Mirror·慢速  原生慢速（**不是** setPlaybackRate 時間伸縮）
+ *   ③ 原音         真實速度                            ← 驗收
+ *
+ * 為什麼不拿 `setPlaybackRate(0.7)` 冒充第二級：時間伸縮把所有音段等比拉長，
+ * 但真實的慢速 speech 是母音與停頓變長、子音幾乎不變。等比拉長會毀掉 tense/lax
+ * 母音的時長線索、抹開塞音爆破（偵測詞界最強的線索之一）、把 F0 輪廓拉長成假語調。
+ * 而且**弱讀還是弱讀**——"wanna" 放慢仍是 "wanna"，學習者要的是邊界，拉長不會
+ * 生出邊界。所以 ① ② 必須是離線預生成的檔案，查不到就整個區塊不顯示。
+ *
+ * 'none' 與 'idle' 都代表「沒有階梯可走」，但要分開：'idle' 是還沒查（或這張卡
+ * 根本不合格），'none' 是查過確定沒有。兩者的畫面一樣，分開只是為了讀 log 時
+ * 分得出「沒打網路」與「打了沒有」。
+ */
+type MirrorState =
+  | { status: 'idle' }
+  | { status: 'checking' }
+  | { status: 'none' }
+  | { status: 'ready'; chunkedUrl: string; slowUrl: string };
+
+/**
+ * 揭露全文之後、診斷卡之前，學習者自己給的答案（noticing）。
+ *
+ * ⚠️ 只活在 component state，**不寫回 `Capture`**：types.ts 沒有這個欄位，
+ * 而 migration 006 連現有欄位都還沒上線（`selection_text` 實測回 42703）。
+ * 偷加一個欄位會讓「寫進去了」變成一句假話。這是已知的資料流失，記在 ADR-0022
+ * 的 follow-up，不是靜靜補一欄。
+ */
+type NoticeAnswer =
+  | { kind: 'phrase'; text: string }
+  | { kind: 'segmentation' }
+  | { kind: 'skip' };
+
+/**
+ * 「他圈的」與「我們判斷的」比對用的正規化。大小寫、標點、多餘空白都不算差異——
+ * 他圈 "wanna go" 而診斷寫 "Wanna go," 是同一處，判成「不同處」會讓對照列
+ * 每張卡都在挑他毛病。
+ */
+function normalizeNotice(s: string): string {
+  return s
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9' ]/g, ' ')
+    .replace(/\s+/g, ' ');
+}
+
+/**
+ * 兩段文字指的是不是**同一處**。
+ *
+ * 🔴 **必須以「詞」為單位比，不准用裸的 `a.includes(b)`。** 字元層的包含關係在英文
+ * 句子裡到處都是假陽性：`'gonna'.includes('on')`、`'they'.includes('the')`、
+ * `'stop'.includes('to')` 全是 true。他只點了一個 "on"、我們判斷的是 "gonna"，
+ * 裸 includes 會回他一句「同一處」——那是在告訴他「你跟我們看法一致」，而他指的
+ * 根本是別的地方。
+ *
+ * 為什麼這一格不能將就：這個 app 唯一的資產就是「學習者自己指出來的斷點」，而
+ * 「他圈的 vs 我們猜的」一致率是診斷延後**唯一要產出的那個數字**。偏差還剛好偏向
+ * 「同意」——那正是延後診斷要消滅的錨定效應，只是換個地方發生而已。
+ *
+ * 判準：一方的整串詞是另一方的**連續子序列**（"wanna" ⊂ "wanna go" 算同一處，
+ * "on" ⊄ "gonna"）。這也保留了原本要的寬鬆度：大小寫與標點在 `normalizeNotice`
+ * 就磨掉了，"Wanna go," 與 "wanna go" 仍然是同一處。
+ */
+function sameNoticeSpan(a: string, b: string): boolean {
+  // filter(Boolean)：normalizeNotice 的標點換空白會留下頭尾空白（"hey," → "hey "），
+  // 不濾掉會多出一個空字串 token，讓比對整個錯位。
+  const wa = a.split(' ').filter(Boolean);
+  const wb = b.split(' ').filter(Boolean);
+  if (wa.length === 0 || wb.length === 0) return false;
+  return containsWordRun(wa, wb) || containsWordRun(wb, wa);
+}
+
+/** `haystack` 裡有沒有一段**連續**的詞剛好等於 `needle`。 */
+function containsWordRun(haystack: string[], needle: string[]): boolean {
+  if (needle.length === 0 || needle.length > haystack.length) return false;
+  for (let i = 0; i + needle.length <= haystack.length; i++) {
+    let hit = true;
+    for (let j = 0; j < needle.length; j++) {
+      if (haystack[i + j] !== needle[j]) {
+        hit = false;
+        break;
+      }
+    }
+    if (hit) return true;
+  }
+  return false;
+}
 
 /**
  * 排序權重。**三態不能再用二分法**：`selected`（親手圈出）是最強的一級，
@@ -351,6 +448,14 @@ export default function PracticeScreen() {
   const [recordingUri, setRecordingUri] = useState<string | null>(null);
   const [recordError, setRecordError] = useState<string | null>(null);
   const [stopAt, setStopAt] = useState<number | null>(null);
+  /** Mirror 素材（① 分塊／② 慢速）。查不到 → 整個階梯區塊不顯示。 */
+  const [mirror, setMirror] = useState<MirrorState>({ status: 'idle' });
+  /** Mirror 是完整短檔（沒有 stopAt），大圓鍵的播放/停止狀態要另外記。 */
+  const [mirrorPlaying, setMirrorPlaying] = useState(false);
+  /** 他自己的 noticing 答案。null = 還沒回答 → 診斷卡按住不放。 */
+  const [noticed, setNoticed] = useState<NoticeAnswer | null>(null);
+  /** noticing 面板裡被點亮的 token index（保持連續的一段）。 */
+  const [noticeTokens, setNoticeTokens] = useState<number[]>([]);
 
   // Re-render on any store change so we always show live capture data
   // (diagnosis written back async, strength upgrades, ...).
@@ -472,6 +577,15 @@ export default function PracticeScreen() {
     setRecordingUri(null);
     setRecordError(null);
     setStopAt(null);
+    // 🔴 Mirror 與 noticing 的四個 state 一定要跟著換卡歸零。漏掉 `mirror` 最兇：
+    // 上一張卡的 chunkedUrl/slowUrl 會留在畫面上，按下去播出一句「聽起來很合理
+    // 但根本是別句」的音檔——沒有錯誤訊息、沒有紅字，是這個畫面上最難被發現的
+    // 一種錯。`noticed` 殘留則會讓下一張卡的診斷卡在他還沒判斷前就展開，那正好
+    // 是這一輪要消滅的錨定。
+    setMirror({ status: 'idle' });
+    setMirrorPlaying(false);
+    setNoticed(null);
+    setNoticeTokens([]);
     player.pause();
 
     if (!current) return;
@@ -516,6 +630,44 @@ export default function PracticeScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [index, queue]);
 
+  /**
+   * Mirror 素材查詢。**刻意是獨立的一支 effect，不塞進上面的逐字稿 effect。**
+   *
+   * 那支有兩個 early return（`!ep` / `!canTranscribe(ep)`），塞進去會被它們吃掉：
+   * 有 vtt 但沒設 OpenAI key 的示範集正好走那條線，而那正是唯一可能有 Mirror
+   * 素材的一集。而且逐字稿 effect 已經扛著網路轉錄，再多一個責任只是把風險面
+   * 擴大。
+   */
+  useEffect(() => {
+    setMirror({ status: 'idle' });
+    const cap = current?.capture;
+    if (!cap) return;
+    // 白名單（不是 `!== 'weak'`）：只有 selected / saved 的 window 對齊 VTT cue
+    // 邊界，離線預生成才算得出檔名。倒帶來的窗口是 T−15 的任意浮點、還會被合併
+    // 收窄，永遠對不上——理由完整寫在 lib/mirrorAudio.ts 的檔頭。
+    if (!MIRROR_ELIGIBLE_STRENGTHS.includes(cap.strength as never)) return;
+    const ep = findEpisodeById(cap.episode_id);
+    const paths = deriveMirrorPaths({
+      transcriptUrl: ep?.transcriptUrl,
+      windowStart: cap.window_start,
+    });
+    if (!paths) return; // 推不出路徑就當成沒有素材，連網路都不打
+    let cancelled = false;
+    setMirror({ status: 'checking' });
+    void checkMirrorAssets(paths).then((r) => {
+      if (cancelled) return;
+      setMirror(
+        r === 'ready'
+          ? { status: 'ready', chunkedUrl: paths.chunkedUrl, slowUrl: paths.slowUrl }
+          : { status: 'none' },
+      );
+    });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [index, queue]);
+
   // Record the daily session summary once everything is done.
   useEffect(() => {
     if (!queue || queue.length === 0 || index < queue.length) return;
@@ -541,6 +693,7 @@ export default function PracticeScreen() {
   }, [index, queue]);
 
   const playSegment = async (rate: number) => {
+    setMirrorPlaying(false); // 換來源就離開 Mirror 模式，大圓鍵的狀態才不會卡住
     if (!liveCapture) return;
     const ep = findEpisodeById(liveCapture.episode_id);
     if (!ep) return;
@@ -559,8 +712,34 @@ export default function PracticeScreen() {
   };
 
   const stopPlayback = () => {
+    setMirrorPlaying(false);
     player.pause();
     setStopAt(null);
+  };
+
+  /**
+   * Mirror 的播放：照抄 `playRecording` 而不是 `playSegment`——素材是一個完整的
+   * 短檔（就是那一句），所以從 0 播、播完就完，沒有 `stopAt` 要守。
+   */
+  const playMirror = async (url: string) => {
+    if (!url) return;
+    try {
+      if (loadedSourceRef.current !== url) {
+        player.replace({ uri: url });
+        loadedSourceRef.current = url;
+      }
+      // 🔴 一定要明寫 1：setPlaybackRate 黏在 player 實例上、**不隨來源重設**。
+      // 不寫就會繼承上一次的 0.7×，把離線生成的原生慢速再時間伸縮一次——正好是
+      // 這條階梯存在的理由（MirrorState 檔頭）所要消滅的那種失真。
+      player.setPlaybackRate(1, 'high');
+      setStopAt(null);
+      setMirrorPlaying(true);
+      await player.seekTo(0);
+      player.play();
+    } catch (err) {
+      console.warn('[practice] playMirror failed:', err);
+      setMirrorPlaying(false);
+    }
   };
 
   const startRecording = async () => {
@@ -599,6 +778,7 @@ export default function PracticeScreen() {
   };
 
   const playRecording = async () => {
+    setMirrorPlaying(false);
     if (!recordingUri) return;
     try {
       if (loadedSourceRef.current !== recordingUri) {
@@ -658,6 +838,27 @@ export default function PracticeScreen() {
     void diagnoseCapture({ sentence, context }).then((d) => {
       setDiagnosing(false);
       if (d) updateCapture(liveCapture.id, { diagnosis: d });
+    });
+  };
+
+  /**
+   * noticing 面板的 token 點選。**只允許一段連續的字**，因為聽力的斷點是連續的
+   * 一段聲音；准他東點一個西點一個，收到的是「這幾個字我都不太熟」，那與
+   * 「我卡在這裡」不是同一件事。
+   *
+   * 規則：空 → 只選它；與現有區間相鄰 → 併入；正好是區間端點 → 收回一格
+   * （這就是「取消」）；其餘 → 重設成只選它（跳著點＝改變主意，不是擴張）。
+   */
+  const toggleNoticeToken = (i: number) => {
+    setNoticeTokens((prev) => {
+      if (prev.length === 0) return [i];
+      const min = prev[0];
+      const max = prev[prev.length - 1];
+      if (i === min - 1) return [i, ...prev];
+      if (i === max + 1) return [...prev, i];
+      if (i === min) return prev.slice(1);
+      if (i === max) return prev.slice(0, -1);
+      return [i];
     });
   };
 
@@ -858,12 +1059,19 @@ export default function PracticeScreen() {
   }
 
   const episode = findEpisodeById(liveCapture.episode_id);
-  const isPlaying = playerStatus.playing && stopAt !== null;
+  // Mirror 是完整短檔、沒有 stopAt，所以大圓鍵的「正在播」要多認一個來源。
+  // 刻意**不**把 playRecording 也納進來：那會改到既有行為（放自己的錄音時大圓鍵
+  // 目前不變成停止鍵），是另一輪的事。
+  const isPlaying = playerStatus.playing && (stopAt !== null || mirrorPlaying);
   const sentences = transcript.phase === 'ready' ? transcript.sentences : null;
   // 目標句：窗口內所有 segment 併成一句。空字串代表「窗口沒對到句子」，
   // 後面每個用到它的地方都先擋一次（RSS 來的時間戳偶爾對不上）。
   const focus = sentences?.inWindow.map((s) => s.text).join(' ').trim() ?? '';
   const clue = sentences?.before?.text.trim() ?? '';
+  /** noticing 面板的可點 token。focus 已經 trim 過，所以不會切出空字串。 */
+  const noticeWords = focus === '' ? [] : focus.split(/\s+/);
+  /** Mirror 階梯只在 practice 步驟出現——① ② 洩漏詞界，等同提示。 */
+  const mirrorLadder = mirror.status === 'ready' && step === 'practice';
 
   return (
     <ScrollView
@@ -1009,12 +1217,31 @@ export default function PracticeScreen() {
           </View>
         ) : null}
 
-        {/* 重聽鍵：句子正下方。大的那顆是原速（綠＝學習者動手了，與播放器的
-            ↺15 同一個語意），慢速是次要選項，所以只是一顆玻璃膠囊。 */}
+        {/**
+         * 重聽鍵：句子正下方。大的那顆是原速（綠＝學習者動手了，與播放器的
+         * ↺15 同一個語意），慢速是次要選項，所以只是一顆玻璃膠囊。
+         *
+         * **Mirror 素材查不到時（今天必然如此）這一塊與改版前一個像素都不差**——
+         * 那是這一輪的降級保證：階梯是加法，沒有素材就不存在，不顯示 disabled 的
+         * 壞按鈕、也不顯示「素材載入失敗」（那是在跟他報告一件與他無關的事）。
+         *
+         * ③ 原音（大綠圓）兩個 step 都渲染、永遠可按（65d8e9b 的教訓：confirm 步驟
+         * 抽掉聲音等於要人憑幾天前的記憶下判斷，實測 9 張滑掉 7 張、confirm rate 0%）。
+         * ① ② 只在 practice 渲染：它們把句子切成塊、把邊界唸出來，等同提示，出現在
+         * confirm 步驟就把聽力題變成閱讀題。
+         */}
         <View style={styles.transport}>
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel={isPlaying ? '停止重聽' : '原速重聽這一句'}
+            accessibilityLabel={
+              isPlaying
+                ? '停止重聽'
+                : mirrorLadder
+                  ? // 階梯的最後一級就是驗收，所以問句寫在這顆鍵上——既有的評分列
+                    // 已經是三選一的量尺，再放一個問句面板就是兩把尺背靠背。
+                    '原音重聽這一句 — 這次聽得出來嗎'
+                  : '原速重聽這一句'
+            }
             onPress={isPlaying ? stopPlayback : () => void playSegment(1)}
             style={({ pressed }) => [styles.playCircle, pressed && styles.pressed]}
           >
@@ -1024,16 +1251,44 @@ export default function PracticeScreen() {
               <PlayIcon size={20} color={C.accentInk} />
             )}
           </Pressable>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="慢速重聽這一句"
-            onPress={() => void playSegment(0.7)}
-            style={({ pressed }) => [styles.slowPill, pressed && styles.pressed]}
-          >
-            <PlayIcon size={11} color={C.text} />
-            <Text style={styles.slowText}>0.7× 慢速</Text>
-          </Pressable>
+          {mirrorLadder ? (
+            <>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="分塊重聽：塊內原速、邊界停頓"
+                onPress={() => void playMirror(mirror.chunkedUrl)}
+                style={({ pressed }) => [styles.slowPill, pressed && styles.pressed]}
+              >
+                <PlayIcon size={11} color={C.text} />
+                <Text style={styles.slowText}>① 分塊</Text>
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="原生慢速重聽"
+                onPress={() => void playMirror(mirror.slowUrl)}
+                style={({ pressed }) => [styles.slowPill, pressed && styles.pressed]}
+              >
+                <PlayIcon size={11} color={C.text} />
+                <Text style={styles.slowText}>② 慢速</Text>
+              </Pressable>
+            </>
+          ) : (
+            // 沒有 Mirror 素材時 0.7× 是唯一的慢速，這條路徑不能刪。
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="慢速重聽這一句"
+              onPress={() => void playSegment(0.7)}
+              style={({ pressed }) => [styles.slowPill, pressed && styles.pressed]}
+            >
+              <PlayIcon size={11} color={C.text} />
+              <Text style={styles.slowText}>0.7× 慢速</Text>
+            </Pressable>
+          )}
         </View>
+        {/* 階梯的走法寫成一行字：三顆鍵擺在一起看不出先後，而先後正是它的教學價值。 */}
+        {mirrorLadder && (
+          <Text style={styles.ladderNote}>① 分塊 → ② 慢速 → ③ 原音（驗收）</Text>
+        )}
 
         {/* 來歷：這張卡憑什麼在這裡。它不是系統排給你的功課，是你自己按出來的。 */}
         <View style={styles.originRow}>
@@ -1087,9 +1342,87 @@ export default function PracticeScreen() {
         </Glass>
       ) : (
         <>
-          {/* Step c — 診斷卡。琥珀＝**app 在猜**：這張卡從頭到尾是推測，
-              原本它用綠框（accentDark）是語意違規——綠色只屬於學習者的動作。 */}
-          {reveal === 'full' && (
+          {/**
+           * Step c-1 — noticing：**診斷卡之前先讓他自己講**。
+           *
+           * 為什麼要延後診斷：診斷先出現的話，後續每一個反應都被它錨定，量到的
+           * 是「他同意 app 的猜測」而不是他自己的 noticing——而這個 app 唯一的
+           * 資產就是「學習者自己指出來的斷點」，被自家的猜測污染等於自斷來源。
+           *
+           * ⚠️ 延後的是**顯示**，不是抓取：`onReveal` 照舊在揭露當下就發診斷請求，
+           * 他思考的這幾秒剛好蓋掉 round trip。（靠 `diagnosing` 的非同步延遲當
+           * 延後一定失效——複習卡與二次進入的卡 `diagnosis` 早就在 store 裡，會在
+           * 按下「看逐字稿」的同一幀整張出現。所以閘門必須是 `noticed`。）
+           *
+           * 沒有色暈：這一步他還沒動手，只是被問——與 confirm 那塊同一個道理。
+           */}
+          {step === 'practice' && reveal === 'full' && focus !== '' && noticed === null && (
+            <Glass radius={R.lg} style={styles.section}>
+              <Text style={styles.sectionTitle}>你覺得卡在哪？</Text>
+              <View style={styles.noticeTokens}>
+                {noticeWords.map((w, i) => {
+                  const on = noticeTokens.includes(i);
+                  return (
+                    <Pressable
+                      key={i}
+                      accessibilityRole="button"
+                      accessibilityState={{ selected: on }}
+                      onPress={() => toggleNoticeToken(i)}
+                      style={({ pressed }) => [
+                        styles.noticeToken,
+                        // 綠底＝他親手指的（與逐字稿裡的框選同一個語意色）。
+                        on && styles.noticeTokenOn,
+                        pressed && styles.pressed,
+                      ]}
+                    >
+                      <Text style={styles.focusText}>{w}</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+              <View style={styles.row}>
+                <Pressable
+                  disabled={noticeTokens.length === 0}
+                  onPress={() =>
+                    setNoticed({
+                      kind: 'phrase',
+                      text: noticeTokens.map((i) => noticeWords[i]).join(' '),
+                    })
+                  }
+                  style={({ pressed }) => [
+                    styles.actionBtn,
+                    noticeTokens.length === 0 && styles.disabledBtn,
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <Text style={styles.actionBtnText}>就是這幾個字</Text>
+                </Pressable>
+                {/* 「切不出有幾個字」不是「不知道」：那是詞界切分失敗（Field 2003），
+                    是這個產品獨有的那一格資料，所以給它自己的按鈕而不是併進跳過。 */}
+                <Pressable
+                  onPress={() => setNoticed({ kind: 'segmentation' })}
+                  style={({ pressed }) => [styles.actionBtn, pressed && styles.pressed]}
+                >
+                  <Text style={styles.actionBtnText}>我切不出這裡有幾個字</Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => setNoticed({ kind: 'skip' })}
+                  style={({ pressed }) => [
+                    styles.ghostBtn,
+                    styles.noticeSkip,
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <Text style={styles.ghostBtnText}>跳過</Text>
+                </Pressable>
+              </View>
+            </Glass>
+          )}
+
+          {/* Step c-2 — 診斷卡。琥珀＝**app 在猜**：這張卡從頭到尾是推測，
+              原本它用綠框（accentDark）是語意違規——綠色只屬於學習者的動作。
+              多的那道 `noticed !== null` 閘就是上面那段延後的實作。 */}
+          {reveal === 'full' && noticed !== null && (
             <>
               {liveCapture.diagnosis ? (
                 <Glass
@@ -1108,6 +1441,46 @@ export default function PracticeScreen() {
                       {liveCapture.diagnosis.focus_phrase}
                     </Text>
                   </View>
+
+                  {/**
+                   * 對照列：**他先講的**擺上面，app 的判斷擺下面。
+                   *
+                   * 兩者不一致時寫「先信你圈的」不是客套：他圈的是他當下真的
+                   * 卡住的地方，診斷只是一次沒有聽覺輸入的文字推測。這一格
+                   * 不一致本身就是資料（CONTEXT.md：selection_kind vs
+                   * DiagnosisType 的落差是資料不是錯誤）。
+                   *
+                   * `skip` 不顯示對照列——他沒給答案，硬比就是替他捏造一個。
+                   */}
+                  {noticed?.kind === 'phrase' && (
+                    <View style={styles.noticeCompare}>
+                      <Text style={styles.noticedText}>你圈的：{noticed.text}</Text>
+                      <Text style={styles.diagFocus}>
+                        我們判斷：{liveCapture.diagnosis.focus_phrase}
+                      </Text>
+                      {(() => {
+                        const a = normalizeNotice(noticed.text);
+                        const b = normalizeNotice(liveCapture.diagnosis.focus_phrase);
+                        // 以詞為單位比（見 sameNoticeSpan）——裸的 includes 會把
+                        // 「他點了 on」與「我們判斷 gonna」判成同一處。
+                        const same = sameNoticeSpan(a, b);
+                        return (
+                          <Text style={same ? styles.compareSame : styles.compareDiff}>
+                            {same ? '同一處' : '不同處——先信你圈的'}
+                          </Text>
+                        );
+                      })()}
+                    </View>
+                  )}
+                  {noticed?.kind === 'segmentation' && (
+                    <View style={styles.noticeCompare}>
+                      <Text style={styles.noticedText}>你說：這裡切不出有幾個字</Text>
+                      <Text style={styles.diagFocus}>
+                        我們判斷：{liveCapture.diagnosis.focus_phrase}
+                      </Text>
+                    </View>
+                  )}
+
                   <Text style={styles.diagText}>
                     {liveCapture.diagnosis.explanation_zh}
                   </Text>
@@ -1360,6 +1733,8 @@ const styles = StyleSheet.create({
     borderColor: GLASS.edge,
   },
   slowText: { ...TYPE.caption, fontSize: 13, color: C.text },
+  /** 階梯的走法。C.dim（不是 faint）：這行字壓在玻璃上。 */
+  ladderNote: { ...TYPE.caption, color: C.dim },
 
   originRow: { flexDirection: 'row', alignItems: 'flex-start', gap: SP(1.5) },
   originMark: { ...TYPE.caption, fontSize: 14, color: C.accent },
@@ -1428,6 +1803,44 @@ const styles = StyleSheet.create({
     paddingVertical: SP(3),
   },
   actionBtnText: { ...TYPE.heading, fontSize: 15, color: C.text },
+  /** 沒選字時的「就是這幾個字」。只調透明度，不換顏色——換色會多出一個語意。 */
+  disabledBtn: { opacity: 0.5 },
+
+  /* --- noticing（診斷延後的那一步） -------------------------------------- */
+
+  /** 可點的字。行距與 focusText 一致，點亮後不會把整段推開。 */
+  noticeTokens: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: SP(1),
+    marginBottom: SP(3),
+  },
+  noticeToken: {
+    borderRadius: R.sm,
+    paddingHorizontal: SP(1.5),
+    paddingVertical: SP(0.5),
+  },
+  /** 綠底＝他親手指的，與逐字稿裡的框選同一個語意色（絕不與琥珀同時出現）。 */
+  noticeTokenOn: { backgroundColor: C.accentSurface },
+  /** ghostBtn 在一列裡沒有橫向內距會擠成一條，只補排版、不動顏色。 */
+  noticeSkip: { paddingHorizontal: SP(4) },
+
+  /** 診斷卡裡的對照列。 */
+  noticeCompare: { gap: SP(1.5) },
+  /** 他圈的字：綠底行內色塊，alignSelf 讓底色只包住文字而不是整行。 */
+  noticedText: {
+    ...TYPE.heading,
+    fontSize: 15,
+    color: C.text,
+    alignSelf: 'flex-start',
+    backgroundColor: C.accentSurface,
+    borderRadius: R.sm,
+    paddingHorizontal: SP(2),
+    paddingVertical: SP(1),
+  },
+  compareSame: { ...TYPE.caption, color: C.dim },
+  /** 不同處＝這是 app 自己在講自己的判斷可能沒踩中 → 琥珀。 */
+  compareDiff: { ...TYPE.caption, color: C.amber },
 
   diagnosisCard: { marginTop: SP(3.5), padding: SP(3), gap: SP(2), borderWidth: 1, borderColor: C.highlight },
   diagnosisPending: { marginTop: SP(3.5) },
