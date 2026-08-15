@@ -31,6 +31,7 @@
 | `docs/01-product/competitors.md` | 🔒 競品分析（含內部誠實風險） |
 | `docs/01-product/architecture.md` | ⚠️ 系統架構。**已不再是 🔒**：`.gitignore` 現在擋的是 `architecture-local.md`，這份沒被擋、也還沒被 git 追蹤，下次 `git add -A` 就會進公開 repo。而且它是 7 月舊稿，內容與現況脫節（寫 `react-native-track-player`，實際用 `expo-audio`；列的三支 Edge Function 不存在，實際是 `transcribe` / `diagnose` / `annotate`）。**公開前先過一次事實查核，或改名回 `-local`** |
 | `docs/02-execution/six-week-plan.md` | 逐週執行計劃（對齊 NTU Day / Pre-Demo Day） |
+| `docs/02-execution/demo-day-runbook.md` | 🔒 **攤位腳本**：90 秒 demo 逐步、失敗預案、十個必被問的問題與答法。含自評弱點與話術，不進公開 repo |
 | `docs/02-execution/roadmap-expo-to-native.md` | **主計劃（活文件）**：誠實狀態表、三階段各被什麼擋住、8/17 前衝刺、8/17 後原生化順序、**OTA 界線完整規則**、18 條風險登記簿。每次 EAS Build 後回來更新 §1 |
 | `docs/02-execution/native-app-blueprint.md` | 純 Swift 版架構藍圖。**draft 提案——不是決定，也不是成果**；裡面每一行 Swift 都未經驗證 |
 | `docs/02-execution/weekly-log/` | 每週實際進度紀錄（NTU Day 發表材料來源） |

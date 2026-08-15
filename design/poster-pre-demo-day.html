@@ -1,0 +1,488 @@
+<title>You Already Told Us</title>
+<style>
+  /* ───────────────────────────────────────────────────────────────
+     Echo — Pre-Demo Day booth poster.  A2 portrait (420 × 594 mm).
+
+     Deliberately SINGLE-THEME. This is a print piece: it goes on
+     paper or on a propped-up screen under room light, and a dark
+     ground would cost a fortune in toner and die on 4×A4 tiling.
+     Every colour is painted explicitly so it holds on any host.
+
+     All type is sized in `cqw` against the poster container, so the
+     layout is identical at 420 mm (print) and at 380 px (phone).
+     ─────────────────────────────────────────────────────────────── */
+
+  :root {
+    /* Paper: a cool off-white, biased ~1° toward the signal green.
+       Not cream — cream would warm the greens into olive. */
+    --paper:   #F3F6F4;
+    --panel:   #EAEEEB;
+    --ink:     #14191B;
+    --ink-mid: #46514F;
+    --ink-dim: #77827F;
+    --rule:    #C3CCC8;
+
+    /* Semantic hues carried over from the app's theme.ts:
+       green = the learner acted · amber = the app is guessing ·
+       slate-blue = neutral chrome / playback position.
+       Darkened for ink-on-paper contrast. */
+    --signal:  #0B7A46;
+    --signal-soft: #D2E7DC;
+    --guess:   #A96B12;
+    --guess-soft:  #F0E4CC;
+    --track:   #3E5261;
+
+    --display: -apple-system, BlinkMacSystemFont, "Helvetica Neue", "Segoe UI", sans-serif;
+    --body:    -apple-system, BlinkMacSystemFont, "PingFang TC", "Noto Sans TC",
+               "Microsoft JhengHei", "Helvetica Neue", sans-serif;
+    --mono:    ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: #DDE3E0;
+    color: var(--ink);
+    font-family: var(--body);
+    display: flex;
+    justify-content: center;
+    padding: 16px;
+  }
+
+  .poster {
+    width: min(420mm, 100%);
+    aspect-ratio: 420 / 594;
+    container-type: inline-size;
+    background: var(--paper);
+    color: var(--ink);
+    display: grid;
+    grid-template-rows: auto auto auto 1fr auto;
+    padding: 5.2cqw 5.2cqw 4cqw;
+    gap: 3.4cqw;
+    box-shadow: 0 2px 24px rgba(20, 25, 27, 0.16);
+  }
+
+  /* ── shared atoms ─────────────────────────────────────────── */
+
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 1.28cqw;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--ink-dim);
+  }
+
+  .rule { height: 1px; background: var(--rule); border: 0; margin: 0; }
+
+  /* ── 1. masthead ──────────────────────────────────────────── */
+
+  .masthead { display: grid; gap: 1.5cqw; }
+
+  .brandline {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 2cqw;
+    border-bottom: 2px solid var(--ink);
+    padding-bottom: 1.1cqw;
+  }
+
+  .wordmark {
+    font-family: var(--display);
+    font-size: 3.5cqw;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+  }
+  .wordmark span { color: var(--signal); }
+
+  h1 {
+    font-family: var(--display);
+    font-size: 7.1cqw;
+    line-height: 0.96;
+    font-weight: 800;
+    letter-spacing: -0.035em;
+    text-wrap: balance;
+    margin: 0.4cqw 0 0;
+    max-width: 22ch;
+  }
+
+  .kicker-zh {
+    font-size: 2.15cqw;
+    line-height: 1.5;
+    color: var(--ink-mid);
+    max-width: 40ch;
+    margin: 0;
+  }
+  .kicker-zh b { color: var(--ink); font-weight: 600; }
+
+  /* ── 2. the instrument ────────────────────────────────────── */
+
+  .instrument {
+    background: var(--panel);
+    border: 1px solid var(--rule);
+    padding: 2.6cqw 3cqw 2.2cqw;
+    display: grid;
+    gap: 1.6cqw;
+  }
+  .instrument svg { width: 100%; height: auto; display: block; }
+
+  .instrument-legend {
+    display: flex;
+    gap: 3.4cqw;
+    flex-wrap: wrap;
+    font-size: 1.42cqw;
+    color: var(--ink-mid);
+    line-height: 1.4;
+  }
+  .instrument-legend div { display: flex; gap: 0.8cqw; align-items: flex-start; }
+  .swatch {
+    width: 1.5cqw; height: 1.5cqw; flex: none; margin-top: 0.15cqw;
+    border: 1px solid var(--ink-dim);
+  }
+  .swatch.sig   { background: var(--signal-soft); border-color: var(--signal); }
+  .swatch.guess { background: var(--guess-soft);  border-color: var(--guess); }
+  .swatch.track { background: var(--track); border-color: var(--track); }
+
+  /* ── 3. pipeline (a real sequence — so it gets real numbers) ── */
+
+  .pipeline { display: grid; grid-template-columns: repeat(5, 1fr); gap: 0; }
+
+  .step {
+    padding: 1.5cqw 1.4cqw 1.5cqw 0;
+    border-top: 3px solid var(--rule);
+    display: grid;
+    gap: 0.55cqw;
+    align-content: start;
+  }
+  .step:first-child { border-top-color: var(--signal); }
+  .step-n {
+    font-family: var(--mono);
+    font-size: 1.24cqw;
+    color: var(--ink-dim);
+    letter-spacing: 0.1em;
+  }
+  .step-t {
+    font-size: 1.92cqw;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    line-height: 1.15;
+  }
+  .step-d { font-size: 1.36cqw; line-height: 1.42; color: var(--ink-mid); }
+  .step-d code {
+    font-family: var(--mono);
+    font-size: 0.94em;
+    color: var(--track);
+  }
+
+  /* ── 4. two-column body ───────────────────────────────────── */
+
+  .columns { display: grid; grid-template-columns: 1.32fr 1fr; gap: 3.6cqw; }
+  .col { display: grid; gap: 1.5cqw; align-content: start; }
+
+  h2 {
+    font-family: var(--display);
+    font-size: 2.5cqw;
+    font-weight: 700;
+    letter-spacing: -0.015em;
+    margin: 0;
+    padding-bottom: 0.9cqw;
+    border-bottom: 1px solid var(--ink);
+  }
+
+  .evidence { display: grid; gap: 1.05cqw; }
+
+  .ev {
+    display: grid;
+    grid-template-columns: 8.4cqw 1fr;
+    gap: 1.5cqw;
+    align-items: baseline;
+  }
+  .ev-num {
+    font-family: var(--mono);
+    font-size: 2.65cqw;
+    font-weight: 600;
+    color: var(--signal);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.02em;
+    text-align: right;
+  }
+  .ev-num small { font-size: 0.5em; color: var(--ink-dim); display: block; letter-spacing: 0.08em; }
+  .ev-txt { font-size: 1.48cqw; line-height: 1.44; color: var(--ink-mid); }
+  .ev-txt b { color: var(--ink); font-weight: 600; }
+
+  .punch {
+    background: var(--signal);
+    color: #F3F6F4;
+    padding: 1.7cqw 2cqw;
+    font-size: 1.72cqw;
+    line-height: 1.42;
+    font-weight: 500;
+  }
+  .punch b { font-weight: 700; }
+
+  .cite {
+    font-family: var(--mono);
+    font-size: 1.12cqw;
+    line-height: 1.5;
+    color: var(--ink-dim);
+  }
+
+  /* right column */
+  .now { display: grid; gap: 0.85cqw; }
+  .row {
+    display: grid;
+    grid-template-columns: 2.4cqw 1fr;
+    gap: 1cqw;
+    font-size: 1.44cqw;
+    line-height: 1.4;
+    align-items: baseline;
+    color: var(--ink-mid);
+  }
+  .row b { color: var(--ink); font-weight: 600; }
+  .mark { font-family: var(--mono); font-weight: 700; }
+  .mark.on   { color: var(--signal); }
+  .mark.next { color: var(--guess); }
+
+  .next-list { display: grid; gap: 1.15cqw; }
+  .nx { display: grid; gap: 0.3cqw; }
+  .nx-t { font-size: 1.62cqw; font-weight: 700; }
+  .nx-t em { font-style: normal; color: var(--guess); font-family: var(--mono); font-size: 0.82em; }
+  .nx-d { font-size: 1.32cqw; line-height: 1.4; color: var(--ink-mid); }
+
+  /* ── 5. footer ────────────────────────────────────────────── */
+
+  .footer {
+    border-top: 2px solid var(--ink);
+    padding-top: 1.4cqw;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    gap: 2cqw;
+  }
+  .status {
+    font-family: var(--mono);
+    font-size: 1.16cqw;
+    line-height: 1.55;
+    color: var(--ink-dim);
+  }
+  .status b { color: var(--ink); font-weight: 600; }
+  .ask {
+    font-size: 1.72cqw;
+    font-weight: 700;
+    text-align: right;
+    line-height: 1.35;
+    max-width: 26ch;
+  }
+  .ask span { display: block; font-weight: 400; font-size: 0.78em; color: var(--ink-mid); }
+
+  /* ── print ────────────────────────────────────────────────── */
+
+  @page { size: A2 portrait; margin: 0; }
+
+  @media print {
+    body { background: #fff; padding: 0; display: block; }
+    .poster {
+      width: 420mm; height: 594mm; aspect-ratio: auto;
+      box-shadow: none;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+  }
+</style>
+
+<div class="poster">
+
+  <!-- 1 ─ masthead ────────────────────────────────────────── -->
+  <header class="masthead">
+    <div class="brandline">
+      <div class="wordmark">Echo<span>.</span></div>
+      <div class="eyebrow">NTU Silicon Valley 2026 · Pre-Demo Day 08.17 · Startup Island TW</div>
+    </div>
+
+    <h1>You already told us what you didn&rsquo;t understand.</h1>
+
+    <p class="kicker-zh">
+      學英文的人每天按幾十次返回鍵，而<b>沒有任何一個 app 在記錄那一下</b>。
+      Echo 把它接住：不問問題、不打斷聆聽，只是把你重聽的那三十秒留下來，隔天再拿回來給你。
+    </p>
+  </header>
+
+  <!-- 2 ─ the instrument ─────────────────────────────────── -->
+  <section class="instrument">
+    <svg viewBox="0 0 1000 176" role="img"
+         aria-label="音訊時間軸：學習者在 5:37 按下往回 15 秒，系統把 5:07 至 5:37 存成一個難點窗口。">
+      <defs>
+        <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5"
+                markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="#0B7A46"/>
+        </marker>
+      </defs>
+
+      <!-- capture window band -->
+      <rect x="252" y="86" width="470" height="40" fill="#D2E7DC"/>
+      <rect x="252" y="86" width="470" height="40" fill="none" stroke="#0B7A46" stroke-width="1.5"/>
+
+      <!-- context padding, drawn as the app pads it: +6 s each side -->
+      <rect x="158" y="94" width="94" height="24" fill="#F0E4CC"/>
+      <rect x="722" y="94" width="94" height="24" fill="#F0E4CC"/>
+
+      <!-- the track -->
+      <line x1="40" y1="106" x2="960" y2="106" stroke="#3E5261" stroke-width="2.5"/>
+
+      <!-- ticks -->
+      <g stroke="#3E5261" stroke-width="1.5">
+        <line x1="158" y1="130" x2="158" y2="140"/>
+        <line x1="252" y1="130" x2="252" y2="144"/>
+        <line x1="487" y1="130" x2="487" y2="140"/>
+        <line x1="722" y1="130" x2="722" y2="144"/>
+        <line x1="816" y1="130" x2="816" y2="140"/>
+      </g>
+      <g font-family="ui-monospace, 'SF Mono', Menlo, monospace" font-size="17" fill="#46514F"
+         text-anchor="middle" letter-spacing="0.5">
+        <text x="252" y="166">5:07</text>
+        <text x="487" y="166">5:22</text>
+        <text x="722" y="166">5:37</text>
+      </g>
+
+      <!-- the rewind arc: T → T−15 -->
+      <path d="M722,74 C 690,18 300,18 252,72"
+            fill="none" stroke="#0B7A46" stroke-width="3.5" marker-end="url(#arrow)"/>
+      <circle cx="722" cy="106" r="8" fill="#0B7A46"/>
+
+      <text x="487" y="42" text-anchor="middle"
+            font-family="-apple-system, 'Helvetica Neue', sans-serif"
+            font-size="27" font-weight="700" fill="#0B7A46">↺ 15s</text>
+
+      <text x="770" y="60" text-anchor="start"
+            font-family="ui-monospace, 'SF Mono', Menlo, monospace"
+            font-size="16" fill="#46514F">他在這裡按了返回鍵</text>
+
+      <text x="487" y="112" text-anchor="middle"
+            font-family="ui-monospace, 'SF Mono', Menlo, monospace"
+            font-size="17" font-weight="600" fill="#0B7A46"
+            letter-spacing="1">CAPTURE WINDOW</text>
+    </svg>
+
+    <div class="instrument-legend">
+      <div><span class="swatch track"></span><span>播放中的單集。學習者<b>沒有做任何額外的事</b>。</span></div>
+      <div><span class="swatch sig"></span><span>難點窗口 <code>[T−15, T]</code>——留下來的三十秒。</span></div>
+      <div><span class="swatch guess"></span><span>前後各 +6 秒的重播 context。</span></div>
+    </div>
+  </section>
+
+  <!-- 3 ─ pipeline ───────────────────────────────────────── -->
+  <section class="pipeline">
+    <div class="step">
+      <div class="step-n">01 / 聽的當下</div>
+      <div class="step-t">接住那一下</div>
+      <div class="step-d">往回鍵、控制中心、鎖定畫面都算。3 秒內連按算同一個訊號。</div>
+    </div>
+    <div class="step">
+      <div class="step-n">02 / 幾秒後</div>
+      <div class="step-t">只轉錄這一段</div>
+      <div class="step-d">窗口化 ASR——不是整集。省成本，也省等待。</div>
+    </div>
+    <div class="step">
+      <div class="step-n">03 / 當晚</div>
+      <div class="step-t">診斷難在哪</div>
+      <div class="step-d">連音 / 生字 / 句型 / 語速 / 文化 / 切分，六類擇一。</div>
+    </div>
+    <div class="step">
+      <div class="step-n">04 / 隔天</div>
+      <div class="step-t">漸進揭露</div>
+      <div class="step-d">線索 → 骨架 → 全文。遮罩帶著原句的形狀。</div>
+    </div>
+    <div class="step">
+      <div class="step-n">05 / 之後</div>
+      <div class="step-t">在它要忘之前</div>
+      <div class="step-d">間隔重複排程；每次評分都留下 review log。</div>
+    </div>
+  </section>
+
+  <!-- 4 ─ evidence + status ──────────────────────────────── -->
+  <section class="columns">
+
+    <div class="col">
+      <h2>憑什麼相信「返回鍵」是好訊號</h2>
+
+      <div class="evidence">
+        <div class="ev">
+          <div class="ev-num">3.06<small>ODDS RATIO</small></div>
+          <div class="ev-txt"><b>自發</b>注意到自己詞彙有洞的人，學會那個詞的勝算是沒注意到的人的 3.06 倍。</div>
+        </div>
+        <div class="ev">
+          <div class="ev-num">4.57<small>ODDS RATIO</small></div>
+          <div class="ev-txt">被<b>要求</b>出聲、因而注意到缺口的人，4.57 倍。</div>
+        </div>
+        <div class="ev">
+          <div class="ev-num">n.s.<small>兩者之差</small></div>
+          <div class="ev-txt">而這兩組之間<b>沒有顯著差異</b>——強迫他做動作，並不比他自己注意到更有效。</div>
+        </div>
+      </div>
+
+      <div class="punch">
+        真正起作用的是<b>「意識到自己有洞」</b>，不是「做了什麼動作」。<br>
+        而按返回鍵，就是那個意識發生的瞬間。<b>所以我們不必打斷他。</b>
+      </div>
+
+      <div class="evidence">
+        <div class="ev">
+          <div class="ev-num">34–38%<small>變異解釋</small></div>
+          <div class="ev-txt">聽覺詞彙量 + <b>詞界切分能力</b>合起來解釋的聽力成績變異。切錯一個詞界，後面整串話跟著崩。</div>
+        </div>
+        <div class="ev">
+          <div class="ev-num">0<small>競品在收</small></div>
+          <div class="ev-txt">沒有任何 app 在收集「學習者連詞界都切不出來的位置」。<b>閱讀 app 永遠看不到它——文字裡沒有連音。</b></div>
+        </div>
+      </div>
+
+      <p class="cite">
+        Noticing vocabulary holes aids incidental L2 word learning — Bilingualism: Lang.&nbsp;&amp;&nbsp;Cognition ·
+        Field (2003), Promoting Perception: Lexical Segmentation in L2 Listening ·
+        Hulstijn &amp; Laufer (2001), Involvement Load Hypothesis — Language Learning
+      </p>
+    </div>
+
+    <div class="col">
+      <h2>現在跑得動的</h2>
+      <div class="now">
+        <div class="row"><span class="mark on">✓</span><span><b>端到端閉環</b>：倒帶 → 逐字稿 → 診斷 → 練習 → 排程，全程跑通</span></div>
+        <div class="row"><span class="mark on">✓</span><span><b>鎖定畫面的倒帶也算</b>：螢幕關著按的往回鍵，用位置取樣推斷出來</span></div>
+        <div class="row"><span class="mark on">✓</span><span><b>兩點框選</b>：單手、走路中指得出「就是這幾個字」</span></div>
+        <div class="row"><span class="mark on">✓</span><span><b>「我聽不出這裡有幾個字」</b>——切分失敗的專用出口</span></div>
+        <div class="row"><span class="mark on">✓</span><span><b>難度帶 1–5</b>：從逐字稿的語速與詞彙即時估，量出來的與猜的畫得不一樣</span></div>
+      </div>
+
+      <h2>接下來</h2>
+      <div class="next-list">
+        <div class="nx">
+          <div class="nx-t">動態島 / 鎖屏選擇題 <em>W7</em></div>
+          <div class="nx-d">今天的難點常駐在鎖定畫面上，三選一，按了就換下一題——不必打開 app。</div>
+        </div>
+        <div class="nx">
+          <div class="nx-t">情境提醒 <em>W8</em></div>
+          <div class="nx-d">你在藥局門口時，才把你上週在 podcast 裡卡住的那個藥名還給你。<b>編碼特定性</b>：在原情境提取，記得住。</div>
+        </div>
+        <div class="nx">
+          <div class="nx-t">耳機真實生活模式 <em>Q4</em></div>
+          <div class="nx-d">聽不懂真人講話時捏一下 AirPods——同一個訊號，離開 podcast。</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 5 ─ footer ─────────────────────────────────────────── -->
+  <footer class="footer">
+    <div class="status">
+      現況（2026.08.14 直接查線上資料庫得到，不是估計）<br>
+      <b>captures 15</b> · <b>replay_events 22</b>（其中鎖屏 3，跳幅 10.0–10.1 s）<br>
+      真實使用者 <b>1</b>：創辦人本人，dogfooding 第 5 週。<b>管線通了 ≠ 產品有用</b>，我知道差別。
+    </div>
+    <div class="ask">
+      我要找的是十個願意連續用七天的人。
+      <span>蔡秉叡 Ray Tsai · NTU CSIE · 找我聊，或直接借你的手機試一集。</span>
+    </div>
+  </footer>
+
+</div>
