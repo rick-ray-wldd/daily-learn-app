@@ -33,6 +33,10 @@ const ROOT = resolve(HERE, "..");
 //   ECHO_ICON_SRC=<別的素材> ECHO_ICON_OUT=/tmp/x node design/build-icons.mjs
 const SRC = process.env.ECHO_ICON_SRC || join(ROOT, "img", "icon", "echo-lockup-square.png");
 const OUT_DIR = process.env.ECHO_ICON_OUT || join(ROOT, "app", "assets");
+
+/** 產生與驗證**必須共用同一條路徑規則**，否則驗證器會對 `dir` 覆寫過的 target
+ *  回報「不存在」——一個看起來像失敗、其實是護欄自己找錯地方的假警報。 */
+const outPath = (t) => join(t.dir || OUT_DIR, t.name);
 const VERIFY_ONLY = process.argv.includes("--verify");
 
 /* ------------------------------------------------------------------ *
@@ -102,6 +106,8 @@ const DARK_INK_HEX = "F3F6F4"; // theme.ts 的 paper
 // 著色版必須嚴格中性（R=G=B）：系統會用使用者選的色相重上色，任何色偏都會打架。
 const TINT_BG_HEX = "0B0B0B";
 const TINT_INK_HEX = "E8E8E8";
+// 版面用的 mark：用 theme.ts 的 ink 而不是純黑，才跟海報／簡報的文字同一個黑。
+const PRINT_INK_HEX = "14191B";
 
 /* ------------------------------------------------------------------ *
  * 2. 產出清單
@@ -180,6 +186,19 @@ const TARGETS = [
     // 所以這張必須是嚴格中性灰——放任何色偏進去都會與使用者選的色打架。
     // 深底淺 mark：著色模式下亮的部分才會吃到顏色，mark 是主體所以它要亮。
     note: "iOS 18+ tinted variant：嚴格灰階，深底淺 mark（系統只讀亮度）",
+  },
+  {
+    name: "echo-mark-print.png",
+    dir: HERE,
+    size: 512,
+    markFrac: 0.96,
+    alpha: true,
+    bg: null,
+    ink: PRINT_INK_HEX,
+    // 海報與簡報用。**必須透明底**：那兩份的紙色是 #F3F6F4，把不透明的 icon.png
+    // 放上去會出現一個白方塊。緊裁到 0.96 是因為版面自己會給留白，資產再留一圈
+    // 會讓它在視覺上比指定的尺寸小一號。512px 夠用：簡報首頁 30mm @300dpi = 354px。
+    note: "版面用 mark：透明底、緊裁、theme ink 色",
   },
   {
     name: "favicon.png",
@@ -522,7 +541,8 @@ function generate() {
     ink: INK_HEX,
     opticalWeight: OPTICAL_WEIGHT,
     expected: EXPECTED,
-    targets: TARGETS.map((t) => ({ ...t, path: join(OUT_DIR, t.name) })),
+    // dir 可逐 target 覆寫：品牌資產（海報／簡報用）不該混進 app/assets。
+    targets: TARGETS.map((t) => ({ ...t, path: outPath(t) })),
   };
 
   const workerPath = join(tmpdir(), "echo-build-icons-worker.py");
@@ -631,7 +651,7 @@ function verify(reportOutputs) {
 
   let ok = true;
   for (const t of TARGETS) {
-    const p = join(OUT_DIR, t.name);
+    const p = outPath(t);
     if (!existsSync(p)) {
       log(`  ${t.name.padEnd(30)}✗ 不存在`);
       ok = false;
@@ -676,7 +696,7 @@ function verify(reportOutputs) {
   // 透明輸出：alpha 範圍必須貼合 mark，不能有裁切矩形的鬼影
   const GHOST_TOL = 6; // px，容許羽化外溢
   for (const t of TARGETS.filter((x) => x.alpha)) {
-    const p = join(OUT_DIR, t.name);
+    const p = outPath(t);
     if (!existsSync(p)) continue;
     const ro = (reportOutputs || []).find((o) => o.name === t.name);
     if (!ro || !ro.mark_box) continue;
@@ -765,7 +785,8 @@ if (!ok) fail("驗證未通過 —— 上面標 ✗ 的項目要修到對，不�
 log("✓ 全部通過。");
 log("");
 log("尚未處理（需要人做決定，不在本腳本範圍）：");
-log("  · app/app.json 的 android.adaptiveIcon.backgroundColor 仍是 Expo 範本的 #E6F4FE，");
+// （原本這裡提示 adaptiveIcon.backgroundColor 還是 #E6F4FE。已於 e0290d8 改成
+//   #FFFFFF，提示留著就變成假訊息，所以拿掉。）
 log(`    但 backgroundImage 是純 #${BG_HEX}。有 backgroundImage 時它會蓋掉 backgroundColor，`);
 log("    不影響成品，但兩個值不一致，建議把 backgroundColor 也改成 #FFFFFF。");
 log("  · app.json 沒有 expo-splash-screen plugin，也沒有 splash 設定區塊 —— splash-icon.png");
