@@ -2,8 +2,9 @@
 <style>
   /* ───────────────────────────────────────────────────────────────
      Echo — Demo Day 2026 · 5-minute deck · 10 slides · 16:9
+     ENGLISH edition. The Chinese one is `deck-demo-day.html`.
 
-     Same visual system as the booth poster (design/poster-pre-demo-day.html):
+     Same visual system as the booth poster (design/poster-pre-demo-day-en.html):
      paper ground, semantic hues carried from the app's theme.ts,
      mono for instrument data. A deck and a poster that look like the
      same object read as one company, not two documents.
@@ -18,10 +19,9 @@
      the custom paper size has to be re-entered by hand every time
      and nothing checks whether a slide silently clipped.
 
-     ⚠️ The English edition is `deck-demo-day-en.html`. Its <style>
-     block is a verbatim copy of this one and the build script diffs
-     them — but the diff covers <style> ONLY, so a fix to the SVG or
-     the numbers must be hand-carried to both files.
+     ⚠️ This <style> block is a verbatim copy of the Chinese deck's and
+     the build script diffs them — but the diff covers <style> ONLY, so
+     a fix to the SVG or the numbers must be hand-carried to both files.
      ─────────────────────────────────────────────────────────────── */
 
   :root {
@@ -170,32 +170,36 @@
   <div class="body">
     <h2>You already told us<br>what you didn&rsquo;t <em>understand.</em></h2>
     <p class="sub">
-      <b>Echo</b> —— 學英文的人每天按幾十次返回鍵，而沒有任何一個 app 在記錄那一下。<br>
-      我們把它接住：不問問題、不打斷聆聽，隔天再把那三十秒還給你。
+      <b>Echo</b> — English learners hit rewind dozens of times a day, and no app records that tap.<br>
+      We catch it: no questions, no interruption. Tomorrow you get those fifteen seconds back.
     </p>
   </div>
-  <div class="bot"><span>蔡秉叡 Ray Tsai · NTU CSIE · Solo founder</span><span>0:00 / 5:00</span></div>
+  <div class="bot"><span>Ray Tsai 蔡秉叡 · NTU CSIE · Solo founder</span><span>0:00 / 5:00</span></div>
 </section>
 
 <!-- ═══ 2 · PROBLEM ═════════════════════════════════════════ -->
 <section class="slide">
   <div class="top"><div class="eyebrow">01 — Problem &amp; Pain Point</div><div class="clock">0:20</div></div>
   <div class="body">
-    <h2>語言 app 的個人化<br>是<em>假的</em>。</h2>
+    <h2>Personalisation in<br>language apps is <em>fake.</em></h2>
     <div class="two">
       <div class="stack">
-        <div class="lab">痛點真實性</div>
-        <p class="t">它們教的是<b>它的課綱</b>，不是你生活中真正漏接的英語。
-          我學了十幾年英文，聽 native podcast 還是漏掉一半——在座的非母語者都懂這件事。</p>
-        <p class="t">現有解法（Anki、生字本）要求你<b>主動標記</b>。
-          那個動作是額外成本，所以絕大多數人做兩天就停了。</p>
+        <div class="lab">Is the pain real?</div>
+        <p class="t">They teach <b>their syllabus</b>, not the English you actually miss.
+          I have studied English for over a decade and still lose half of a native
+          podcast — every non-native speaker here knows the feeling.</p>
+        <p class="t">Today&rsquo;s answer — Anki, a vocabulary notebook — asks you to
+          <b>flag it yourself</b>. That action is a tax, which is why almost everyone
+          quits after two days.</p>
       </div>
       <div class="stack">
-        <div class="lab a">痛點規模</div>
-        <p class="t">全球約 <b>15 億</b>人在學英語。而其中最痛、付費意願最高的一群，
-          就是<b>已經在用英語生活</b>卻仍然聽不全的人——留學生、外派工作者、遠端協作的工程師。</p>
+        <div class="lab a">How big is it?</div>
+        <p class="t">About <b>1.5 billion</b> people are learning English. The ones who
+          hurt most, and pay most readily, are those <b>already living in English</b>
+          and still not catching all of it — international students, expat workers,
+          engineers on remote teams.</p>
         <div class="box a">
-          <p class="t"><b>我自己就是這個人。</b>這六週我在灣區，每天都在經歷這個問題。</p>
+          <p class="t"><b>I am that person.</b> Six weeks in the Bay Area, hit by this every day.</p>
         </div>
       </div>
     </div>
@@ -208,21 +212,24 @@
   <div class="top"><div class="eyebrow">02 — The Insight</div><div class="clock">0:50</div></div>
   <div class="body">
     <div class="punch">
-      每一次按下返回鍵重聽，<b>就是一次誠實的自白</b>。<br>
-      使用者已經每天在產生這個訊號——只是沒有人把它接住。
+      Every rewind is <b>an honest confession</b>.<br>
+      People already produce this signal every day — nobody is catching it.
     </div>
     <div class="three">
       <div class="stack">
-        <div class="lab g">零摩擦</div>
-        <p class="t">他不必決定「我要學這個」。<b>返回鍵本來就會按。</b></p>
+        <div class="lab g">Zero friction</div>
+        <p class="t">They never decide &ldquo;I want to learn this&rdquo;.
+          <b>The rewind was going to happen anyway.</b></p>
       </div>
       <div class="stack">
-        <div class="lab g">不打斷</div>
-        <p class="t">聽的當下什麼都不問。所有需要判斷的事<b>一律延到隔天</b>。</p>
+        <div class="lab g">No interruption</div>
+        <p class="t">Nothing is asked while they listen. Every judgment call is
+          <b>deferred to the next day</b>.</p>
       </div>
       <div class="stack">
-        <div class="lab g">是資料，不是功能</div>
-        <p class="t">它長出一張<b>個人英語難點圖譜</b>——別人抄得走功能，抄不走這個。</p>
+        <div class="lab g">Data, not a feature</div>
+        <p class="t">It grows <b>a personal map of your English</b> — a rival can copy the
+          feature, not this.</p>
       </div>
     </div>
   </div>
@@ -231,14 +238,14 @@
 
 <!-- ═══ 4 · HOW IT WORKS ════════════════════════════════════ -->
 <section class="slide">
-  <div class="top"><div class="eyebrow">03 — Solution: 一條全自動的管線</div><div class="clock">1:10</div></div>
+  <div class="top"><div class="eyebrow">03 — Solution: one automatic pipeline</div><div class="clock">1:10</div></div>
   <div class="body">
     <!-- Geometry is load-bearing: the green band 252→722 is the 15 s
          difficulty window, so 1 s = 31.33 px and the ±6 s context pads
          are 188 px. Drawing the band as 30 s (as this once did) makes the
          ↺15s arrow contradict the picture it sits on. -->
     <svg viewBox="0 0 1000 132" role="img"
-         aria-label="時間軸：學習者在 5:37 按下往回 15 秒，系統把 5:22 到 5:37 存成難點窗口，前後各補 6 秒成為重播範圍。">
+         aria-label="Timeline: the listener hits back-15 at 5:37, and the system stores 5:22–5:37 as one difficulty window, padded by 6 s each side for replay.">
       <defs><marker id="a" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7"
         orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#0B7A46"/></marker></defs>
       <rect x="252" y="70" width="470" height="34" fill="#D2E7DC" stroke="#0B7A46" stroke-width="1.5"/>
@@ -264,40 +271,41 @@
             paint-order="stroke" stroke="#D2E7DC" stroke-width="6">CAPTURE WINDOW</text>
     </svg>
     <table>
-      <tr><th style="width:14%">聽的當下</th><th style="width:16%">幾秒後</th><th style="width:16%">當晚</th><th style="width:18%">隔天</th><th>之後</th></tr>
+      <tr><th style="width:14%">As it happens</th><th style="width:16%">Seconds later</th><th style="width:16%">That evening</th><th style="width:18%">Next morning</th><th>After that</th></tr>
       <tr>
-        <td><b>接住那一下</b><br>往回鍵、控制中心、鎖屏都算</td>
-        <td><b>只轉錄這一段</b><br>窗口化 ASR，不是整集</td>
-        <td><b>診斷難在哪</b><br>生字／連音／語速／句型／口音／文化</td>
-        <td><b>漸進揭露</b><br>線索 → 骨架 → 全文，遮罩帶著原句形狀</td>
-        <td><b>在他要忘之前再問一次</b><br>間隔重複排程</td>
+        <td><b>Catch the tap</b><br>Back button, Control Center, lock screen all count</td>
+        <td><b>Transcribe just this</b><br>Windowed ASR, not the whole episode</td>
+        <td><b>Diagnose the break</b><br>Vocabulary / linking / speed / grammar / accent / culture</td>
+        <td><b>Reveal in stages</b><br>Clue → skeleton → full text; the mask keeps the sentence&rsquo;s shape</td>
+        <td><b>Ask again before they forget</b><br>Spaced repetition</td>
       </tr>
     </table>
-    <p class="t" style="text-align:center"><b>從他按下返回鍵到隔天被問，全程自動。他沒有做任何額外的事。</b></p>
+    <p class="t" style="text-align:center"><b>From the rewind to the question next morning, all of it is automatic. They did nothing extra.</b></p>
   </div>
   <div class="bot"><span>ECHO · BOOTH 08</span><span>4 / 10</span></div>
 </section>
 
 <!-- ═══ 5 · DEMO ════════════════════════════════════════════ -->
 <section class="slide">
-  <div class="top"><div class="eyebrow">04 — Demo（實機／影片 60 秒）</div><div class="clock">1:40</div></div>
+  <div class="top"><div class="eyebrow">04 — Demo (live phone / 60 s video)</div><div class="clock">1:40</div></div>
   <div class="body">
-    <h2>現在，我按一下<em>返回鍵</em>。</h2>
+    <h2>Watch. I hit <em>rewind.</em></h2>
     <div class="two">
       <div class="funnel">
-        <div class="fr"><div class="n">1</div><div class="d">聽 podcast，一句沒聽懂 → <b>按 ↺15</b>。畫面上什麼都沒發生</div></div>
-        <div class="fr"><div class="n">2</div><div class="d">切到練習分頁 → <b>⚡ 搶先練（1）</b>：那三十秒自己跑進來了</div></div>
-        <div class="fr"><div class="n">3</div><div class="d">句子是<b>遮住</b>的，但遮罩帶著原句的形狀——長度、節奏都在</div></div>
-        <div class="fr"><div class="n">4</div><div class="d">先聽，再決定：<b>「真的沒聽懂」還是「只是分心」</b></div></div>
-        <div class="fr"><div class="n">5</div><div class="d">三段揭露：線索 → 骨架 → 全文</div></div>
+        <div class="fr"><div class="n">1</div><div class="d">Listening to a podcast, one sentence doesn&rsquo;t land → <b>tap ↺15</b>. Nothing happens on screen</div></div>
+        <div class="fr"><div class="n">2</div><div class="d">Switch to Practice → <b>⚡ Get ahead (1)</b>: those fifteen seconds walked in by themselves</div></div>
+        <div class="fr"><div class="n">3</div><div class="d">The sentence is <b>masked</b> — but the mask keeps its shape: length and rhythm are still there</div></div>
+        <div class="fr"><div class="n">4</div><div class="d">Listen first, then decide: <b>&ldquo;I really didn&rsquo;t get it&rdquo; or &ldquo;I was just distracted&rdquo;</b></div></div>
+        <div class="fr"><div class="n">5</div><div class="d">Three-stage reveal: clue → skeleton → full text</div></div>
       </div>
       <div class="box g">
-        <div class="lab g">為什麼線索是「前一句」</div>
-        <p class="t">聽力理解是往前推進的。<b>前一句是他已經聽懂的那一句</b>，
-          拿它當支點才叫線索；給後一句等於先看結局。</p>
-        <div class="lab g" style="margin-top:0.6cqw">為什麼遮罩要有形狀</div>
-        <p class="t">他看得到句子多長、哪個字特別長、節奏是什麼，卻讀不到內容——
-          <b>而形狀正是聽力重建句子時真正用得上的線索</b>。</p>
+        <div class="lab g">Why the clue is the <i>previous</i> sentence</div>
+        <p class="t">Listening runs forward. <b>The previous sentence is the one they already
+          understood</b> — that is what makes it a foothold. The next one would just be the ending.</p>
+        <div class="lab g" style="margin-top:0.6cqw">Why the mask has a shape</div>
+        <p class="t">They can see how long the sentence is, which word is unusually long, what the
+          rhythm is — but they cannot read it. <b>Shape is exactly the cue listening uses to
+          rebuild a sentence.</b></p>
       </div>
     </div>
   </div>
@@ -306,27 +314,28 @@
 
 <!-- ═══ 6 · WHY NOW + MOAT ══════════════════════════════════ -->
 <section class="slide">
-  <div class="top"><div class="eyebrow">05 — Why Now &amp; Moat（進入門檻）</div><div class="clock">2:40</div></div>
+  <div class="top"><div class="eyebrow">05 — Why Now &amp; Moat</div><div class="clock">2:40</div></div>
   <div class="body">
     <div class="two">
       <div class="stack">
         <div class="lab">Why now</div>
         <ul>
-          <li>ASR 成本兩年降一個數量級，<b>窗口化轉錄</b>讓單位成本降到可行</li>
-          <li>LLM 才剛能回答「<b>他為什麼沒聽懂</b>」，而不只是「這句話是什麼」</li>
-          <li>藍牙耳機 = <b>已經部署的十億個感測器</b>，手勢可程式化</li>
-          <li>AR 眼鏡的 ambient 助理浪潮剛起——<b>同一個訊號，換一個載體</b></li>
+          <li>ASR cost fell an order of magnitude in two years; <b>windowed transcription</b> brings the unit cost into range</li>
+          <li>LLMs only just became able to answer &ldquo;<b>why didn&rsquo;t they understand it</b>&rdquo;, not merely &ldquo;what was said&rdquo;</li>
+          <li>Bluetooth earbuds = <b>a billion sensors already deployed</b>, with programmable gestures</li>
+          <li>The ambient-assistant wave on AR glasses is just starting — <b>same signal, new carrier</b></li>
         </ul>
       </div>
       <div class="stack">
-        <div class="lab g">Moat：不是功能，是資料</div>
-        <p class="t">三根支柱各自都有人做了。<b>護城河在輸入層</b>——
-          從真實聆聽擷取難點，這一段沒有人在收。</p>
+        <div class="lab g">Moat: not the feature, the data</div>
+        <p class="t">All three pillars have been built by someone. <b>The moat is at the input
+          layer</b> — capturing difficulty from real listening. Nobody is collecting that.</p>
         <div class="box g">
-          <p class="t">功能可以抄。<b>你按了三個月返回鍵長出來的個人難點圖譜抄不走。</b></p>
+          <p class="t">Features can be copied. <b>The map of your English that three months of
+            rewinds builds cannot.</b></p>
         </div>
-        <p class="t">而且要抄得先<b>重寫播放器</b>——只有自己的播放器拿得到那個事件。
-          這就是我們不做網頁、自己寫播放器的原因。</p>
+        <p class="t">And to copy it you must first <b>rewrite the player</b> — only your own player
+          sees that event. That is why we are not a web app.</p>
       </div>
     </div>
   </div>
@@ -335,36 +344,38 @@
 
 <!-- ═══ 7 · MARKET ══════════════════════════════════════════ -->
 <section class="slide">
-  <div class="top"><div class="eyebrow">06 — Market Size（估算，方法附上）</div><div class="clock">3:10</div></div>
+  <div class="top"><div class="eyebrow">06 — Market Size (estimated; method shown)</div><div class="clock">3:10</div></div>
   <div class="body">
     <div class="three">
       <div class="stack">
         <div class="lab">TAM</div>
         <div class="big n">$15–20B</div>
-        <p class="cap">全球<b>數位語言學習</b>市場（產業估計值）。全球約 15 億英語學習者。</p>
+        <p class="cap">Global <b>digital language learning</b> (industry estimates). ~1.5 billion English learners worldwide.</p>
       </div>
       <div class="stack">
         <div class="lab">SAM</div>
         <div class="big a">$3–4B</div>
-        <p class="cap">其中<b>英語 × 以聽力／口說為目標</b>的自學者。
-          取英語佔比約 50% × 聽說導向約 40%。</p>
+        <p class="cap">The <b>English × listening/speaking-led</b> self-study slice.
+          English ≈ 50% × listening-and-speaking-led ≈ 40%.</p>
       </div>
       <div class="stack">
-        <div class="lab g">SOM（3 年）</div>
+        <div class="lab g">SOM (3 years)</div>
         <div class="big">$16M ARR</div>
-        <p class="cap"><b>由下而上</b>算的灘頭堡，假設全部列在右邊。</p>
+        <p class="cap">A <b>bottom-up</b> beachhead. Every assumption is spelled out below.</p>
       </div>
     </div>
     <div class="box">
-      <div class="lab" style="border:0;padding:0">SOM 的算法 —— 每一個假設都可以被質疑，這是重點</div>
+      <div class="lab" style="border:0;padding:0">How the SOM is built — every assumption here is challengeable, and that is the point</div>
       <p class="t">
-        在美非母語英語留學生與早期職場工作者 <b>≈ 150 萬</b>（國際學生約 110 萬 + 工作簽證存量）
-        &nbsp;×&nbsp; 已在聽英語 podcast <b>30%</b> = 45 萬
-        &nbsp;×&nbsp; 願為英語學習付費 <b>20%</b> = 9 萬人
-        &nbsp;×&nbsp; ARPU <b>$15/月</b>（對標 Speak／ELSA 的 $15–25）
-        &nbsp;=&nbsp; <b>約 $16M ARR</b>
+        Non-native students and early-career professionals in the US <b>≈ 1.5 M</b>
+        (~1.1 M international students + work-visa stock)
+        &nbsp;×&nbsp; already listen to English podcasts <b>30%</b> = 450 K
+        &nbsp;×&nbsp; willing to pay for English learning <b>20%</b> = 90 K
+        &nbsp;×&nbsp; ARPU <b>$15/mo</b> (against Speak / ELSA at $15–25)
+        &nbsp;=&nbsp; <b>≈ $16M ARR</b>
       </p>
-      <p class="cap">灘頭堡選在這裡，是因為這群人<b>痛得最深、付費意願最高、而且我就在他們中間</b>。</p>
+      <p class="cap">The beachhead is here because these people <b>hurt the most, pay the most
+        readily, and I am standing among them</b>.</p>
     </div>
   </div>
   <div class="bot"><span>ECHO · BOOTH 08</span><span>7 / 10</span></div>
@@ -372,49 +383,53 @@
 
 <!-- ═══ 8 · COMPETITION ═════════════════════════════════════ -->
 <section class="slide">
-  <div class="top"><div class="eyebrow">07 — 競爭差異化（我不假裝這裡是空的）</div><div class="clock">3:35</div></div>
+  <div class="top"><div class="eyebrow">07 — Competition (I will not pretend this space is empty)</div><div class="clock">3:35</div></div>
   <div class="body">
     <table>
-      <tr><th style="width:22%">對手</th><th style="width:39%">他們有什麼</th><th>他們缺什麼</th></tr>
-      <tr><td><b>Snipd</b>　最接近</td><td>耳機三擊擷取 podcast 片段、ASR ＋ LLM 摘要</td><td>服務知識管理，<b>完全沒有語言診斷／發音層</b></td></tr>
-      <tr><td><b>Duolingo</b>　Video Call</td><td>AI 即時口說對話與回饋，巨頭主場</td><td>課綱驅動，<b>沒有被動聆聽訊號</b></td></tr>
-      <tr><td><b>Speak</b>　$1B 估值</td><td>語音優先 AI 家教，驗證了高 ARPU 訂閱</td><td>練的是它出的題，<b>不是你真實漏接的內容</b></td></tr>
-      <tr><td><b>YourBestAccent</b> 等</td><td>克隆自己的聲音練發音（golden speaker）</td><td>沒有真實生活輸入、<b>沒有診斷閉環</b></td></tr>
-      <tr><td><b>Meta Ray-Ban</b></td><td>穿戴式即時翻譯，硬體已大眾出貨</td><td>做<b>翻譯</b>不做<b>學習</b>——這是 Phase 3 的最大風險</td></tr>
-      <tr class="me"><td>Echo</td><td>真實聆聽的 rewind 訊號 → 診斷為何聽不懂 → 練習閉環</td><td>三塊分開都有人做，<b>沒有人把它們接起來</b></td></tr>
+      <tr><th style="width:22%">Who</th><th style="width:39%">What they have</th><th>What they lack</th></tr>
+      <tr><td><b>Snipd</b>　closest</td><td>Triple-tap earbud capture of podcast clips, ASR + LLM summaries</td><td>Serves knowledge management; <b>no language diagnosis or pronunciation layer at all</b></td></tr>
+      <tr><td><b>Duolingo</b>　Video Call</td><td>Live AI speaking practice and feedback, at incumbent scale</td><td>Syllabus-driven; <b>no passive listening signal</b></td></tr>
+      <tr><td><b>Speak</b>　$1B valuation</td><td>Voice-first AI tutor; proved the high-ARPU subscription</td><td>You practise its prompts, <b>not what you actually missed</b></td></tr>
+      <tr><td><b>YourBestAccent</b> et al.</td><td>Clone your own voice to practise pronunciation (golden speaker)</td><td>No real-life input, <b>no diagnostic loop</b></td></tr>
+      <tr><td><b>Meta Ray-Ban</b></td><td>Wearable live translation; hardware already shipping at scale</td><td>Does <b>translation</b>, not <b>learning</b> — the biggest risk to Phase 3</td></tr>
+      <tr class="me"><td>Echo</td><td>Rewind signal from real listening → diagnosis of why → practice loop</td><td>All three exist separately; <b>nobody has connected them</b></td></tr>
     </table>
-    <p class="cap">⚠️ 我<b>不會</b>宣稱語音克隆或 AI 口說診斷是我的獨家——那兩塊是紅海，
-      而且自聲練發音的效果證據是混合的。<b>我的賭注只有一個：輸入層。</b></p>
+    <p class="cap">⚠️ I do <b>not</b> claim voice cloning or AI speaking diagnosis as mine — both are
+      red oceans, and the evidence for self-voice pronunciation practice is mixed.
+      <b>I am betting on one thing only: the input layer.</b></p>
   </div>
   <div class="bot"><span>ECHO · BOOTH 08</span><span>8 / 10</span></div>
 </section>
 
 <!-- ═══ 9 · BUSINESS MODEL + MILESTONES ═════════════════════ -->
 <section class="slide">
-  <div class="top"><div class="eyebrow">08 — 營利模式 &amp; 里程碑</div><div class="clock">4:05</div></div>
+  <div class="top"><div class="eyebrow">08 — Business Model &amp; Milestones</div><div class="clock">4:05</div></div>
   <div class="body">
     <div class="two">
       <div class="stack">
-        <div class="lab">怎麼賺錢</div>
-        <p class="t"><b>訂閱制</b>，$15/月。免費層：擷取與逐字稿無限；
-          付費層：診斷、練習卡、間隔重複、自聲跟讀。</p>
-        <p class="t">成本結構的關鍵是<b>窗口化轉錄</b>——只轉他重聽的那三十秒，不轉整集。
-          標註一個 10 分鐘窗口約 <b>$0.005</b>。</p>
+        <div class="lab">How it makes money</div>
+        <p class="t"><b>Subscription</b>, $15/month. Free: unlimited capture and transcripts.
+          Paid: diagnosis, practice cards, spaced repetition, shadowing in your own voice.</p>
+        <p class="t">The cost story is <b>windowed transcription</b> — transcribe the fifteen
+          seconds they replayed, not the episode. Annotating a 10-minute window costs about
+          <b>$0.005</b>.</p>
         <div class="box a">
-          <p class="t"><b>但現在講定價是空的。</b>我連留存都還沒量到。
-            要先證明的是<b>隔天回來率</b>：他昨天倒帶的東西，明天願不願意打開來練。</p>
+          <p class="t"><b>But talking about pricing now is empty.</b> I have not measured retention.
+            What has to be proven first is the <b>next-day return rate</b>: will they open it
+            tomorrow to practise what they rewound today?</p>
         </div>
       </div>
       <div class="stack">
-        <div class="lab g">5 週做到的（可查證）</div>
+        <div class="lab g">Built in 5 weeks (all checkable)</div>
         <ul>
-          <li><b>端到端閉環跑通</b>：倒帶 → 逐字稿 → 診斷 → 練習 → 排程，全自動</li>
-          <li><b>鎖定畫面的倒帶也接得到</b>：實測 3 筆，跳幅 10.0–10.1 秒，與系統硬編碼間隔吻合</li>
-          <li><b>27 份架構決策紀錄</b>，每個取捨都留下理由與代價</li>
-          <li>14 個相依套件，改一行 JS <b>60 秒送到手機上</b>，不必重新送審</li>
+          <li><b>End-to-end loop running</b>: rewind → transcript → diagnosis → practice → schedule, fully automatic</li>
+          <li><b>Lock-screen rewinds are caught too</b>: 3 measured, jumps of 10.0–10.1 s, matching the system&rsquo;s hardcoded interval</li>
+          <li><b>27 architecture decision records</b> — every trade-off with its reason and its cost written down</li>
+          <li>14 dependencies; a one-line JS change <b>reaches the phone in 60 seconds</b>, no re-review</li>
         </ul>
-        <p class="cap"><b>真實使用者：1 位（我自己，dogfooding 第 5 週）。</b>
-          管線通了 ≠ 產品有用，我知道這中間的差別——所以下一頁是我今晚要的東西。</p>
+        <p class="cap"><b>Real users: 1 (me, dogfooding, week 5).</b>
+          A working pipeline is not a useful product — I know the difference, which is why the
+          next slide is what I want tonight.</p>
       </div>
     </div>
   </div>
@@ -427,25 +442,25 @@
   <div class="body">
     <div class="two">
       <div class="stack">
-        <div class="lab">團隊：現在是我一個人</div>
-        <p class="t"><b>我是目標用戶本人</b>——非母語者、在灣區、每天被這個問題打到。
-          NTU 資工；做過 N=12 的自聲跟讀受試者內實驗，
-          所以我知道<b>哪些宣稱撐得住、哪些撐不住</b>。</p>
+        <div class="lab">Team: right now, me</div>
+        <p class="t"><b>I am the target user</b> — non-native, in the Bay Area, hit by this every
+          day. NTU CSIE; I ran an N=12 within-subject study on self-voice shadowing, so I know
+          <b>which claims hold up and which don&rsquo;t</b>.</p>
         <div class="box a">
-          <p class="t"><b>我缺的很具體：</b>一位語音／ML 工程 co-founder，
-            以及第一批真的會每天用的使用者。</p>
+          <p class="t"><b>What I&rsquo;m missing is specific:</b> a speech/ML engineering
+            co-founder, and a first cohort who will actually use it every day.</p>
         </div>
       </div>
       <div class="stack">
-        <div class="lab g">今晚我要的三件事</div>
+        <div class="lab g">Three things I want tonight</div>
         <ul>
-          <li><b>10 個願意連續用 7 天的人。</b>你聽 podcast 學英文嗎？現在就可以裝</li>
-          <li><b>一位語音／ML 背景的共同創辦人</b>，或幫我引薦一位</li>
-          <li><b>一場與早期投資人或加速器的引薦</b></li>
+          <li><b>Ten people who&rsquo;ll use it seven days straight.</b> Do you learn English from podcasts? You can install it right now</li>
+          <li><b>A co-founder with a speech/ML background</b> — or an introduction to one</li>
+          <li><b>One introduction to an early-stage investor or accelerator</b></li>
         </ul>
         <div class="box g">
-          <p class="t" style="font-size:1.62cqw"><b>攤位 08 號。</b>來按一下我手機上的返回鍵，
-            30 秒你就會看到它變成資料。</p>
+          <p class="t" style="font-size:1.62cqw"><b>Booth 08.</b> Come hit the rewind button on my
+            phone — thirty seconds later you&rsquo;ll watch it turn into data.</p>
         </div>
       </div>
     </div>

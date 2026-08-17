@@ -318,6 +318,10 @@
     .poster {
       width: 420mm; height: 594mm; aspect-ratio: auto;
       box-shadow: none;
+      /* Chrome 會為剛好 594.00mm 的內容多切一張空白頁（實測：中英文幾何完全
+         相同，英文版卻分成 2 頁）。內容既然不超過盒子，這一行剪不到任何東西，
+         只是把那個假影關掉。真正的溢出由 build-pdf.mjs 的 colOverflow 檢查擋。 */
+      overflow: hidden;
     }
   }
 </style>
@@ -334,8 +338,8 @@
     <h1>You already told us what you didn&rsquo;t understand.</h1>
 
     <p class="kicker-zh">
-      學英文的人每天按幾十次返回鍵，而<b>沒有任何一個 app 在記錄那一下</b>。
-      Echo 把它接住：不問問題、不打斷聆聽，只是把你重聽的那三十秒留下來，隔天再拿回來給你。
+      學語言的人每天按幾十次返回鍵，而<b>沒有任何一個 app 在記錄那一下</b>。
+      Echo 把它接住：不問問題、不打斷聆聽，只是把你重聽的那十五秒留下來，隔天再拿回來給你。
     </p>
   </header>
 
@@ -371,8 +375,9 @@
       </g>
       <g font-family="ui-monospace, 'SF Mono', Menlo, monospace" font-size="17" fill="#46514F"
          text-anchor="middle" letter-spacing="0.5">
-        <text x="252" y="166">5:07</text>
-        <text x="487" y="166">5:22</text>
+        <text x="158" y="166">5:16</text>
+        <text x="252" y="166">5:22</text>
+        <text x="816" y="166">5:43</text>
         <text x="722" y="166">5:37</text>
       </g>
 
@@ -392,13 +397,13 @@
       <text x="487" y="112" text-anchor="middle"
             font-family="ui-monospace, 'SF Mono', Menlo, monospace"
             font-size="17" font-weight="600" fill="#0B7A46"
-            letter-spacing="1">CAPTURE WINDOW</text>
+            letter-spacing="1">CAPTURE-WINDOW</text>
     </svg>
 
     <div class="instrument-legend">
       <div><span class="swatch track"></span><span>播放中的單集。學習者<b>沒有做任何額外的事</b>。</span></div>
-      <div><span class="swatch sig"></span><span>難點窗口 <code>[T−15, T]</code>——留下來的三十秒。</span></div>
-      <div><span class="swatch guess"></span><span>前後各 +6 秒的重播 context。</span></div>
+      <div><span class="swatch sig"></span><span>難點窗口 <code>[T−15, T]</code>——留下來的十五秒。</span></div>
+      <div><span class="swatch guess"></span><span>前後各 +6 秒 context，重播共 27 秒。</span></div>
     </div>
   </section>
 
@@ -417,12 +422,12 @@
     <div class="step">
       <div class="step-n">03 / 當晚</div>
       <div class="step-t">診斷難在哪</div>
-      <div class="step-d">連音 / 生字 / 句型 / 語速 / 文化 / 切分，六類擇一。</div>
+      <div class="step-d">生字 / 連音 / 語速 / 句型 / 口音 / 文化，六類擇一。</div>
     </div>
     <div class="step">
       <div class="step-n">04 / 隔天</div>
-      <div class="step-t">漸進揭露</div>
-      <div class="step-d">線索 → 骨架 → 全文。遮罩帶著原句的形狀。</div>
+      <div class="step-t">它自己來找你</div>
+      <div class="step-d">排程通知把那個詞帶到鎖定畫面。三選一，外加「想不起來」。</div>
     </div>
     <div class="step">
       <div class="step-n">05 / 之後</div>
@@ -470,9 +475,12 @@
 
       <p class="cite">
         Noticing vocabulary holes aids incidental L2 word learning — Bilingualism: Lang.&nbsp;&amp;&nbsp;Cognition ·
-        Field (2003), Promoting Perception: Lexical Segmentation in L2 Listening ·
-        Hulstijn &amp; Laufer (2001), Involvement Load Hypothesis — Language Learning
+        Field (2003), Lexical Segmentation in L2 Listening
       </p>
+
+      <h2>這不是英語產品，是聽力產品</h2>
+      <p class="ev-txt"><b>市場是語言學習。</b>英語只是我自己的缺口——倒帶這個訊號不帶語言，
+        換掉語音模型，同一條迴圈就跑在<b>中文、日文或西班牙文</b>上。</p>
     </div>
 
     <div class="col">
@@ -480,48 +488,12 @@
       <div class="now">
         <div class="row"><span class="mark on">✓</span><span><b>端到端閉環</b>：倒帶 → 逐字稿 → 診斷 → 練習 → 排程，全自動</span></div>
         <div class="row"><span class="mark on">✓</span><span><b>鎖定畫面的倒帶也接得到</b>（螢幕關著按的往回鍵）</span></div>
+        <div class="row"><span class="mark on">✓</span><span><b>鎖屏出題</b>：題面直接印在通知標題上，答錯就把它排回今天</span></div>
         <div class="row"><span class="mark on">✓</span><span><b>兩點框選</b>＋「<b>我聽不出這裡有幾個字</b>」切分出口</span></div>
         <div class="row"><span class="mark on">✓</span><span><b>難度帶 1–5</b>：量出來的與猜的，畫得不一樣</span></div>
       </div>
 
-      <h2>你手上那張學習單的四題</h2>
-      <div class="icebreak">
-        <div class="qa">
-          <div class="q">Q · 想解決什麼問題？做到哪一步？</div>
-          <div class="a">語言 app 教的是<b>它的課綱</b>，不是你真正漏接的英語。
-            上面那條管線<b>已經全自動跑通</b>——但只在我自己身上（N=1，第 5 週）。</div>
-        </div>
-        <div class="qa">
-          <div class="q">Q · 第一批使用者是誰？為什麼願意付費？</div>
-          <div class="a"><b>在美的非母語留學生與早期職場工作者</b>——已經在用英語生活卻仍聽不全，
-            痛得最深、付費意願最高。<b>我就在他們中間。</b></div>
-        </div>
-        <div class="qa">
-          <div class="q">Q · 來矽谷最想拿到什麼？</div>
-          <div class="a">一位<b>語音／ML 共同創辦人</b>，以及<b>10 個願意連續用 7 天的人</b>。</div>
-        </div>
-        <div class="qa">
-          <div class="q">Q · 接下來三個月最重要的里程碑？</div>
-          <div class="a"><b>隔天回來率。</b>他昨天倒帶的東西，明天願不願意打開來練——
-            這一個數字決定這個產品成不成立，其他都是裝飾。</div>
-        </div>
-      </div>
-
-      <h2>接下來</h2>
-      <div class="next-list">
-        <div class="nx">
-          <div class="nx-t">鎖屏／動態島選擇題 <em>W7</em></div>
-          <div class="nx-d">難點常駐在鎖定畫面，三選一，按了就換下一題——不必打開 app。</div>
-        </div>
-        <div class="nx">
-          <div class="nx-t">情境提醒 <em>W8</em></div>
-          <div class="nx-d">你走到藥局門口，才把你上週在 podcast 裡卡住的那個藥名還給你。</div>
-        </div>
-        <div class="nx">
-          <div class="nx-t">耳機真實生活模式 <em>Q4</em></div>
-          <div class="nx-d">聽不懂真人講話時捏一下 AirPods——同一個訊號，離開 podcast。</div>
-        </div>
-      </div>
+      <!-- QR-BLOCK -->
     </div>
   </section>
 

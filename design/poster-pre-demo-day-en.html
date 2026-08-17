@@ -319,6 +319,10 @@
     .poster {
       width: 420mm; height: 594mm; aspect-ratio: auto;
       box-shadow: none;
+      /* Chrome 會為剛好 594.00mm 的內容多切一張空白頁（實測：中英文幾何完全
+         相同，英文版卻分成 2 頁）。內容既然不超過盒子，這一行剪不到任何東西，
+         只是把那個假影關掉。真正的溢出由 build-pdf.mjs 的 colOverflow 檢查擋。 */
+      overflow: hidden;
     }
   }
 </style>
@@ -335,8 +339,8 @@
     <h1>You already told us what you didn&rsquo;t understand.</h1>
 
     <p class="kicker-zh">
-      English learners hit rewind dozens of times a day, and <b>no app records
-      that tap</b>. Echo keeps the thirty seconds you replayed — no questions,
+      Language learners hit rewind dozens of times a day, and <b>no app records
+      that tap</b>. Echo keeps the fifteen seconds you replayed — no questions,
       no interruption — and hands them back tomorrow.
     </p>
   </header>
@@ -373,8 +377,9 @@
       </g>
       <g font-family="ui-monospace, 'SF Mono', Menlo, monospace" font-size="17" fill="#46514F"
          text-anchor="middle" letter-spacing="0.5">
-        <text x="252" y="166">5:07</text>
-        <text x="487" y="166">5:22</text>
+        <text x="158" y="166">5:16</text>
+        <text x="252" y="166">5:22</text>
+        <text x="816" y="166">5:43</text>
         <text x="722" y="166">5:37</text>
       </g>
 
@@ -389,18 +394,18 @@
 
       <text x="770" y="60" text-anchor="start"
             font-family="ui-monospace, 'SF Mono', Menlo, monospace"
-            font-size="16" fill="#46514F">he hit rewind here</text>
+            font-size="16" fill="#46514F">you hit rewind here</text>
 
       <text x="487" y="112" text-anchor="middle"
             font-family="ui-monospace, 'SF Mono', Menlo, monospace"
             font-size="17" font-weight="600" fill="#0B7A46"
-            letter-spacing="1">CAPTURE WINDOW</text>
+            letter-spacing="1">CAPTURE-WINDOW</text>
     </svg>
 
     <div class="instrument-legend">
       <div><span class="swatch track"></span><span>Playing. The learner <b>does nothing extra</b>.</span></div>
-      <div><span class="swatch sig"></span><span>Window <code>[T−15, T]</code> — the thirty seconds we keep.</span></div>
-      <div><span class="swatch guess"></span><span>+6 s context each side.</span></div>
+      <div><span class="swatch sig"></span><span>Window <code>[T−15, T]</code> — the fifteen seconds we keep.</span></div>
+      <div><span class="swatch guess"></span><span>+6 s of context each side — 27 s to replay.</span></div>
     </div>
   </section>
 
@@ -409,27 +414,27 @@
     <div class="step">
       <div class="step-n">01 / AS IT HAPPENS</div>
       <div class="step-t">Catch the tap</div>
-      <div class="step-d">Back button, Control Center, lock screen — all count. Taps within 3 s are one signal.</div>
+      <div class="step-d">Back button, Control Center, lock screen. Taps within 3 s count once.</div>
     </div>
     <div class="step">
       <div class="step-n">02 / SECONDS LATER</div>
       <div class="step-t">Transcribe just this</div>
-      <div class="step-d">Windowed ASR — not the whole episode. Saves cost, and saves waiting.</div>
+      <div class="step-d">Windowed ASR — not the whole episode. Cheaper, and no waiting.</div>
     </div>
     <div class="step">
       <div class="step-n">03 / THAT EVENING</div>
       <div class="step-t">Diagnose the break</div>
-      <div class="step-d">Linking, vocabulary, syntax, speed, culture, segmentation — one of six.</div>
+      <div class="step-d">Vocabulary, linking, speed, grammar, accent, culture.</div>
     </div>
     <div class="step">
       <div class="step-n">04 / NEXT MORNING</div>
-      <div class="step-t">Reveal in stages</div>
-      <div class="step-d">Clue → skeleton → full text. The mask keeps the sentence&rsquo;s shape.</div>
+      <div class="step-t">It comes to you</div>
+      <div class="step-d">A notification carries the word to the lock screen. Three choices, plus &ldquo;can&rsquo;t recall&rdquo;.</div>
     </div>
     <div class="step">
       <div class="step-n">05 / AFTER THAT</div>
-      <div class="step-t">Before he forgets</div>
-      <div class="step-d">Spaced repetition; every grade leaves a review log behind.</div>
+      <div class="step-t">Before you forget</div>
+      <div class="step-d">Spaced repetition; every grade leaves a review log.</div>
     </div>
   </section>
 
@@ -462,81 +467,48 @@
       <div class="evidence">
         <div class="ev">
           <div class="ev-num">34–38%<small>VARIANCE EXPLAINED</small></div>
-          <div class="ev-txt">Aural vocabulary + <b>lexical segmentation</b> explain this much of L2 listening scores. Miss one boundary, the sentence collapses.</div>
+          <div class="ev-txt">Aural vocabulary + <b>lexical segmentation</b> explain this much of L2 listening.</div>
         </div>
         <div class="ev">
           <div class="ev-num">0<small>RIVALS COLLECTING IT</small></div>
-          <div class="ev-txt">No app collects <i>where a learner can&rsquo;t even find the word boundaries</i>. <b>Reading apps never see it — text has no connected speech.</b></div>
+          <div class="ev-txt">No app collects <i>where the words stop being separable</i>. <b>Text has no connected speech.</b></div>
         </div>
       </div>
 
       <p class="cite">
         Noticing vocabulary holes aids incidental L2 word learning — Bilingualism: Lang.&nbsp;&amp;&nbsp;Cognition ·
-        Field (2003), Promoting Perception: Lexical Segmentation in L2 Listening ·
-        Hulstijn &amp; Laufer (2001), Involvement Load Hypothesis — Language Learning
+        Field (2003), Lexical Segmentation in L2 Listening
       </p>
+
+      <h2>Not an English product. A listening one.</h2>
+      <p class="ev-txt"><b>The market is language learning.</b> English is just my own gap — a rewind
+        carries no language. Swap the speech model and the same loop runs on
+        <b>Mandarin, Japanese or Spanish</b>.</p>
     </div>
 
     <div class="col">
       <h2>Working today</h2>
       <div class="now">
-        <div class="row"><span class="mark on">✓</span><span><b>End-to-end loop</b>, fully automatic — rewind to scheduled practice</span></div>
+        <div class="row"><span class="mark on">✓</span><span><b>End-to-end loop</b> — rewind to scheduled practice</span></div>
         <div class="row"><span class="mark on">✓</span><span><b>Lock-screen rewinds count too</b> — pressed with the screen off</span></div>
-        <div class="row"><span class="mark on">✓</span><span><b>Two-tap selection</b> + a <b>&ldquo;how many words?&rdquo;</b> escape hatch</span></div>
-        <div class="row"><span class="mark on">✓</span><span><b>Difficulty bands 1–5</b> — measured and guessed are drawn differently</span></div>
+        <div class="row"><span class="mark on">✓</span><span><b>Scheduled lock-screen prompts</b> — the word is the notification title; a wrong answer reschedules it for today</span></div>
+        <div class="row"><span class="mark on">✓</span><span><b>Two-tap selection</b>, plus an <b>&ldquo;I can&rsquo;t tell where the words split&rdquo;</b> escape hatch</span></div>
+        <div class="row"><span class="mark on">✓</span><span><b>Difficulty bands 1–5</b> — measured and guessed look different</span></div>
       </div>
 
-      <h2>The four questions on your passport</h2>
-      <div class="icebreak">
-        <div class="qa">
-          <div class="q">Q · What problem, and how far along?</div>
-          <div class="a">Apps teach <b>their syllabus</b>, not the English you miss. The pipeline above
-            <b>runs end to end</b> — so far only on me (N=1, week 5).</div>
-        </div>
-        <div class="qa">
-          <div class="q">Q · Who pays first, and why?</div>
-          <div class="a"><b>Non-native students and early-career professionals in the US</b> — living in
-            English, still missing half of it. <b>I am one of them.</b></div>
-        </div>
-        <div class="qa">
-          <div class="q">Q · What do you want from Silicon Valley?</div>
-          <div class="a">A <b>speech/ML co-founder</b>, and <b>ten people who&rsquo;ll use it seven days straight</b>.</div>
-        </div>
-        <div class="qa">
-          <div class="q">Q · Biggest milestone in three months?</div>
-          <div class="a"><b>Next-day return rate.</b> Will he come back tomorrow to practise
-            what he rewound today? That number decides whether this exists.</div>
-        </div>
-      </div>
-
-      <h2>What&rsquo;s next</h2>
-      <div class="next-list">
-        <div class="nx">
-          <div class="nx-t">Lock screen &amp; Dynamic Island quiz <em>W7</em></div>
-          <div class="nx-d">Three choices on the lock screen. Tap one, the next appears — the app never opens.</div>
-        </div>
-        <div class="nx">
-          <div class="nx-t">Situated reminders <em>W8</em></div>
-          <div class="nx-d">At the pharmacy door, we hand back the drug name you stalled on last week.</div>
-        </div>
-        <div class="nx">
-          <div class="nx-t">Real-life mode, in your earbuds <em>Q4</em></div>
-          <div class="nx-d">Pinch your AirPods when you miss a real person. Same signal, off the podcast.</div>
-        </div>
-      </div>
+      <!-- QR-BLOCK -->
     </div>
   </section>
 
   <!-- 5 ─ footer ─────────────────────────────────────────── -->
   <footer class="footer">
     <div class="status">
-      STATUS · live database, 2026.08.14 — measured, not estimated<br>
-      <b>captures 15</b> · <b>replay_events 22</b> (3 lock-screen, 10.0–10.1 s) · real users <b>1</b><br>
+      STATUS 2026.08.14, measured: <b>captures 15</b> · <b>replay_events 22</b> (3 lock-screen) · real users <b>1</b><br>
       The founder, week 5. <b>A working pipeline ≠ a useful product.</b>
     </div>
     <div class="ask">
-      Looking for ten people who&rsquo;ll use it seven days straight.
-      <span>Ray Tsai 蔡秉叡 · NTU CSIE · Borrow my phone for one episode.</span>
+      Ten people. Seven days.
+      <span>Ray Tsai 蔡秉叡 · NTU CSIE</span>
     </div>
   </footer>
 

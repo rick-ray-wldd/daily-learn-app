@@ -1,0 +1,923 @@
+<!doctype html>
+<html lang="zh-Hant" data-lang="zh">
+<head>
+<meta charset="utf-8">
+<!-- Unlike poster-pre-demo-day*.html, this file IS a full document: it needs the
+     viewport meta (without it a phone lays out at 980px and the whole thing renders
+     tiny) and standards mode (quirks mode breaks box-sizing). The posters are fed to
+     headless Chrome at a fixed width, so they can skip both. -->
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Echo — 攤位問卷 / Booth Survey</title>
+<!-- Empty data: icon. Without it the browser fires a /favicon.ico request on its
+     own, which is the one request that would falsify the "zero external
+     resources" line in the footer. -->
+<link rel="icon" href="data:,">
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     CONFIGURATION — replace these THREE constants before printing any QR code.
+
+     If any of them still contains "__", the page shows an amber warning strip
+     at the top on load. That is deliberate: it must be impossible to print a
+     QR code that points at a broken form.
+     ═══════════════════════════════════════════════════════════════════════ -->
+<script>
+  /* Where the answers go. Must accept POST and answer CORS preflight (OPTIONS). */
+  const ENDPOINT       = '__FORM_ENDPOINT__';
+
+  /* Rescue path when the POST fails — booth wifi always fails eventually.
+     The answers get packed into a mailto: link addressed here. */
+  const FALLBACK_EMAIL = '__FALLBACK_EMAIL__';
+
+  /* Privacy page. If left unreplaced, the "what we do with this" link falls back
+     to the inline <details id="privacy"> block further down — never a dead link. */
+  const PRIVACY_URL    = '__PRIVACY_URL__';
+
+  /* application/json triggers a CORS preflight; the endpoint must answer OPTIONS.
+     If the backend cannot (Google Apps Script, some no-code form services), switch
+     this to 'text/plain;charset=utf-8' — a CORS-safelisted type that skips the
+     preflight entirely; the body is still JSON and still JSON.parse-able server side.
+     Do NOT "fix" CORS with mode:'no-cors' instead: that makes every response opaque,
+     so a failed submit looks identical to a successful one and the three-layer
+     rescue below never fires. Silently losing booth responses is the one failure
+     this form exists to prevent. */
+  const CONTENT_TYPE   = 'application/json';
+
+  /* Bumped whenever a question changes, so old rows stay interpretable. */
+  const FORM_VERSION   = '2026-08-18.1';
+
+  /* Language: follow the browser, default to English for non-Chinese locales.
+     Set on <html> from the head so there is no flash of the wrong language. */
+  document.documentElement.dataset.lang =
+    (navigator.language || 'en').toLowerCase().startsWith('zh') ? 'zh' : 'en';
+</script>
+
+<style>
+  /* ───────────────────────────────────────────────────────────────
+     Echo — booth survey form.
+
+     The :root block below is a VERBATIM copy of the one in
+     `poster-pre-demo-day-en.html`, so the form and the poster are
+     visibly the same object. Do not "improve" the values here; edit
+     the poster and re-copy, otherwise the two drift apart.
+
+     Same single-theme strategy as the poster: every surface is
+     painted explicitly, nothing inherits the host's background, and
+     `color-scheme: light` keeps the native form controls (radio,
+     checkbox, text caret) light even when the phone is in dark mode.
+     A half-dark form is worse than a committed light one.
+
+     Sizing is in rem/px rather than the poster's cqw: this is a
+     hand-held document, not a print piece, so type must track the
+     reader's own font-size setting.
+     ─────────────────────────────────────────────────────────────── */
+
+  :root {
+    /* Paper: a cool off-white, biased ~1° toward the signal green.
+       Not cream — cream would warm the greens into olive. */
+    --paper:   #F3F6F4;
+    --panel:   #EAEEEB;
+    --ink:     #14191B;
+    --ink-mid: #46514F;
+    --ink-dim: #77827F;
+    --rule:    #C3CCC8;
+
+    /* Semantic hues carried over from the app's theme.ts:
+       green = the learner acted · amber = the app is guessing ·
+       slate-blue = neutral chrome / playback position.
+       Darkened for ink-on-paper contrast. */
+    --signal:  #0B7A46;
+    --signal-soft: #D2E7DC;
+    --guess:   #A96B12;
+    --guess-soft:  #F0E4CC;
+    --track:   #3E5261;
+
+    --display: -apple-system, BlinkMacSystemFont, "Helvetica Neue", "Segoe UI", sans-serif;
+    --body:    -apple-system, BlinkMacSystemFont, "PingFang TC", "Noto Sans TC",
+               "Microsoft JhengHei", "Helvetica Neue", sans-serif;
+    --mono:    ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  }
+  /* ── end of the verbatim block. Everything below is form-only. ──
+     Note the palette has no red: validation and warnings borrow --guess
+     ("the app is unsure"), which is the poster's semantics too. */
+
+  * { box-sizing: border-box; }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+    /* Commits the page to light: without it, a phone in dark mode renders the
+       native radios, checkboxes and text caret dark-on-light-paper. */
+    color-scheme: light;
+  }
+
+  body {
+    margin: 0;
+    background: #DDE3E0;           /* same ground the poster sits on */
+    color: var(--ink);
+    font-family: var(--body);
+    font-size: 17px;
+    line-height: 1.5;
+    padding: 0 0 max(28px, env(safe-area-inset-bottom));
+  }
+
+  /* ── bilingual switching ──────────────────────────────────────
+     Both languages live in the DOM; CSS hides one. Content therefore
+     survives a JS failure, and the toggle is a single attribute flip.
+     Default (attribute missing) is Chinese. */
+  html:not([data-lang="en"]) .en { display: none; }
+  html[data-lang="en"] .zh { display: none; }
+  /* <i> is used purely as a short language container inside option labels
+     (the option lists are dense enough that <span> doubles the markup).
+     Kill the default italic — nothing here is meant to be emphasised. */
+  i { font-style: normal; }
+
+  /* ── shared atoms (borrowed from the poster) ──────────────── */
+
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--ink-dim);
+  }
+
+  .wrap {
+    max-width: 34rem;
+    margin: 0 auto;
+    background: var(--paper);
+    min-height: 100vh;
+    padding: 20px 18px 0;
+  }
+  @media (min-width: 36rem) {
+    .wrap { margin: 20px auto; min-height: 0; border: 1px solid var(--rule);
+            box-shadow: 0 2px 24px rgba(20, 25, 27, 0.16); padding: 26px 30px 0; }
+    body  { padding-bottom: 40px; }
+  }
+
+  /* ── config warning (only when the constants are unreplaced) ── */
+
+  #cfgwarn {
+    display: none;
+    background: var(--guess-soft);
+    border: 1px solid var(--guess);
+    color: var(--guess);
+    font-family: var(--mono);
+    font-size: 12.5px;
+    line-height: 1.5;
+    padding: 10px 12px;
+    margin-bottom: 18px;
+  }
+  #cfgwarn b { color: var(--ink); }
+
+  /* ── masthead ─────────────────────────────────────────────── */
+
+  header.mast { border-bottom: 2px solid var(--ink); padding-bottom: 12px; }
+
+  .brandline {
+    display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
+  }
+  .wordmark {
+    font-family: var(--display);
+    font-size: 27px; font-weight: 800; letter-spacing: -0.02em;
+  }
+  .wordmark span { color: var(--signal); }
+
+  /* Language toggle. 44px tall on both halves — it is the first thing a
+     visitor touches, and a mis-tap here loses the whole response. */
+  .langtoggle { display: flex; border: 1px solid var(--rule); background: var(--paper); }
+  .langtoggle button {
+    font-family: var(--mono); font-size: 12px; letter-spacing: 0.08em;
+    min-width: 46px; min-height: 44px; padding: 0 10px;
+    border: 0; background: transparent; color: var(--ink-dim); cursor: pointer;
+  }
+  .langtoggle button[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
+
+  h1 {
+    font-family: var(--display);
+    font-size: 25px; line-height: 1.12; font-weight: 800; letter-spacing: -0.03em;
+    text-wrap: balance; margin: 14px 0 0;
+  }
+
+  /* ── intro / data-use notice ──────────────────────────────── */
+
+  .intro {
+    background: var(--panel);
+    border: 1px solid var(--rule);
+    padding: 14px 15px;
+    margin: 16px 0 0;
+    font-size: 15px; line-height: 1.55; color: var(--ink-mid);
+  }
+  .intro b { color: var(--ink); font-weight: 600; }
+  .intro a { color: var(--signal); font-weight: 600; }
+  .intro p { margin: 0 0 8px; }
+  .intro p:last-child { margin-bottom: 0; }
+
+  details.privacy { margin-top: 10px; border-top: 1px solid var(--rule); padding-top: 8px; }
+  details.privacy summary {
+    font-family: var(--mono); font-size: 12px; letter-spacing: 0.06em;
+    text-transform: uppercase; color: var(--signal); cursor: pointer;
+    min-height: 28px; display: flex; align-items: center;
+  }
+  details.privacy ul { margin: 8px 0 0; padding-left: 1.1em; font-size: 14px; }
+  details.privacy li { margin-bottom: 5px; }
+
+  .meta {
+    font-family: var(--mono); font-size: 12px; color: var(--ink-dim);
+    letter-spacing: 0.04em; margin: 12px 0 0;
+  }
+
+  /* ── groups & questions ───────────────────────────────────── */
+
+  fieldset.group { border: 0; padding: 0; margin: 30px 0 0; }
+
+  h2 {
+    font-family: var(--display);
+    font-size: 15px; font-weight: 700; letter-spacing: 0.01em;
+    margin: 0 0 4px; padding-bottom: 7px;
+    border-bottom: 1px solid var(--ink);
+    display: flex; align-items: baseline; gap: 9px;
+  }
+  h2 .n { font-family: var(--mono); font-size: 12px; color: var(--ink-dim); letter-spacing: 0.1em; }
+  h2 .star { color: var(--signal); }
+
+  .q { margin-top: 22px; border: 0; padding: 0; }
+  .q > legend {
+    padding: 0; font-size: 17px; font-weight: 700; line-height: 1.38;
+    letter-spacing: -0.01em; color: var(--ink);
+  }
+  .q > legend .qn {
+    font-family: var(--mono); font-size: 13px; font-weight: 600;
+    color: var(--signal); margin-right: 7px; letter-spacing: 0.04em;
+  }
+  .hint { font-size: 13.5px; line-height: 1.45; color: var(--ink-dim); margin: 5px 0 0; }
+
+  .opts { margin-top: 9px; display: grid; gap: 6px; }
+
+  /* 48px min height, full-width hit area: this is filled standing up,
+     one-handed, often by someone holding a coffee. */
+  label.opt {
+    display: flex; align-items: center; gap: 11px;
+    min-height: 48px; padding: 9px 12px;
+    background: var(--paper);
+    border: 1px solid var(--rule);
+    font-size: 15.5px; line-height: 1.35; color: var(--ink-mid);
+    cursor: pointer;
+  }
+  label.opt input { flex: none; width: 21px; height: 21px; margin: 0; accent-color: var(--signal); }
+  label.opt:has(input:checked) {
+    background: var(--signal-soft); border-color: var(--signal); color: var(--ink); font-weight: 600;
+  }
+  label.opt:has(input:focus-visible) { outline: 2px solid var(--track); outline-offset: 1px; }
+
+  textarea, input[type="email"] {
+    width: 100%;
+    /* 16px is the floor: below it iOS Safari zooms the page on focus and the
+       visitor loses their place in the form. */
+    font-size: 16px; font-family: var(--body); line-height: 1.45;
+    color: var(--ink); background: var(--paper);
+    border: 1px solid var(--rule); padding: 12px;
+    margin-top: 9px;
+  }
+  input[type="email"] { min-height: 50px; }
+  textarea { min-height: 88px; resize: vertical; }
+  textarea:focus, input[type="email"]:focus { outline: 2px solid var(--signal); outline-offset: -1px; border-color: var(--signal); }
+
+  /* ── contact block ────────────────────────────────────────── */
+
+  .contact { margin-top: 30px; border: 1px solid var(--ink); padding: 16px 15px; background: var(--panel); }
+  .contact .lab { font-size: 17px; font-weight: 700; }
+  .contact .req { font-family: var(--mono); font-size: 12px; color: var(--signal); letter-spacing: 0.06em; }
+
+  label.check {
+    display: flex; align-items: flex-start; gap: 11px;
+    min-height: 48px; padding: 11px 0 0;
+    font-size: 15px; line-height: 1.4; color: var(--ink-mid); cursor: pointer;
+  }
+  label.check input { flex: none; width: 22px; height: 22px; margin: 1px 0 0; accent-color: var(--signal); }
+  label.check:has(input:checked) { color: var(--ink); }
+
+  .err {
+    display: none; margin-top: 7px; padding: 7px 10px;
+    background: var(--guess-soft); border-left: 3px solid var(--guess);
+    color: var(--guess); font-size: 13.5px; line-height: 1.4; font-weight: 600;
+  }
+  .err.on { display: block; }
+
+  /* ── submit ───────────────────────────────────────────────── */
+
+  button.submit {
+    width: 100%; min-height: 54px; margin-top: 20px;
+    background: var(--signal); color: #F3F6F4;
+    border: 0; font-family: var(--display); font-size: 18px; font-weight: 700;
+    letter-spacing: 0.01em; cursor: pointer;
+  }
+  button.submit:disabled { background: var(--ink-dim); cursor: progress; }
+
+  footer.foot {
+    margin: 24px 0 0; padding: 12px 0 20px; border-top: 1px solid var(--rule);
+    font-family: var(--mono); font-size: 11.5px; line-height: 1.6; color: var(--ink-dim);
+  }
+
+  /* ── rescue + success panels ──────────────────────────────── */
+
+  .panel { display: none; margin-top: 22px; }
+  .panel.on { display: block; }
+  /* These two are focused programmatically (tabindex="-1") purely to move a
+     screen reader to the result. They are containers, not controls, so the UA
+     focus ring is noise — and its blue is the one colour not in the palette. */
+  .panel:focus { outline: none; }
+
+  .rescue { border: 1px solid var(--guess); background: var(--guess-soft); padding: 16px 15px; }
+  .rescue h3 { margin: 0 0 6px; font-family: var(--display); font-size: 19px; font-weight: 800; color: var(--ink); }
+  .rescue p { margin: 0 0 12px; font-size: 15px; line-height: 1.5; color: var(--ink-mid); }
+  .rescue .btns { display: grid; gap: 8px; }
+  .rescue a.btn, .rescue button.btn {
+    display: flex; align-items: center; justify-content: center;
+    min-height: 50px; padding: 0 14px;
+    background: var(--paper); border: 1px solid var(--ink); color: var(--ink);
+    font-family: var(--body); font-size: 16px; font-weight: 600;
+    text-decoration: none; cursor: pointer; text-align: center;
+  }
+  .rescue a.btn.primary, .rescue button.btn.primary { background: var(--ink); color: var(--paper); }
+  .rescue textarea {
+    background: var(--paper); font-family: var(--mono); font-size: 13px; min-height: 150px;
+    border-color: var(--guess);
+  }
+  .rescue .why { font-size: 13px; color: var(--ink-mid); margin: 10px 0 0; }
+
+  .done { border: 1px solid var(--signal); background: var(--signal-soft); padding: 22px 18px; }
+  .done h2 {
+    font-family: var(--display); font-size: 27px; font-weight: 800; letter-spacing: -0.03em;
+    border: 0; padding: 0; margin: 0 0 10px; display: block; color: var(--ink);
+  }
+  .done p { margin: 0 0 12px; font-size: 16px; line-height: 1.55; color: var(--ink-mid); }
+  .done p:last-child { margin-bottom: 0; }
+  .done b { color: var(--ink); font-weight: 700; }
+  .done .stamp {
+    font-family: var(--mono); font-size: 12px; letter-spacing: 0.08em;
+    text-transform: uppercase; color: var(--signal); margin-bottom: 8px;
+  }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+
+  <div id="cfgwarn"></div>
+
+  <!-- ── masthead ─────────────────────────────────────────── -->
+  <header class="mast">
+    <div class="brandline">
+      <div class="wordmark">Echo<span>.</span></div>
+      <div class="langtoggle">
+        <button type="button" id="lang-zh" aria-pressed="false" lang="zh-Hant">中文</button>
+        <button type="button" id="lang-en" aria-pressed="false" lang="en">EN</button>
+      </div>
+    </div>
+    <h1>
+      <span class="zh">你已經告訴過我們，你哪裡沒聽懂。</span>
+      <span class="en">You already told us what you didn&rsquo;t understand.</span>
+    </h1>
+  </header>
+
+  <!-- ── what we do with this ─────────────────────────────── -->
+  <section class="intro">
+    <p class="zh">這份問卷在驗證一件事：<b>按返回鍵重聽，是不是因為沒聽懂。</b>
+      你的答案只會以統計數字出現在課堂與簡報裡，<b>不會有姓名</b>。
+      email 只做一件事——TestFlight 開放時寄一次邀請，不做電子報。</p>
+    <p class="en">This form tests exactly one thing: <b>is hitting rewind a signal that you
+      didn&rsquo;t understand?</b> Your answers appear only as aggregate numbers —
+      <b>never your name</b>. Your email does one thing: a single TestFlight invite when
+      the beta opens. No newsletter.</p>
+    <p><a id="privacylink" href="#privacy"><span class="zh">我們怎麼處理這些資料 →</span><span class="en">What we do with your data →</span></a></p>
+
+    <details class="privacy" id="privacy">
+      <summary><span class="zh">頁內隱私說明</span><span class="en">Privacy, in full</span></summary>
+      <ul class="zh">
+        <li><b>收什麼：</b>上面這 9 題的答案、你的 email，以及你是從哪張 QR code 進來的。</li>
+        <li><b>不收什麼：</b>姓名、公司、IP、裝置資訊。這一頁沒有任何分析或追蹤工具，
+          也沒有任何外部資源——整份頁面不對外部主機發出任何一個請求。</li>
+        <li><b>拿來做什麼：</b>(1) 統計後用於課程作業與募資簡報，只出現彙總數字；
+          (2) TestFlight 開放時，寄一封邀請到你的 email。就這兩件事。</li>
+        <li><b>不會做什麼：</b>不賣、不交換、不轉給第三方，不寄第二封信。</li>
+        <li><b>想刪掉：</b>寄信到 <b data-cfg="FALLBACK_EMAIL"></b>，我手動刪除。
+          目前是一人專案，沒有自助刪除介面——這是實話，不是設計。</li>
+      </ul>
+      <ul class="en">
+        <li><b>Collected:</b> your answers to the 9 questions, your email, and which QR code
+          you came in from.</li>
+        <li><b>Not collected:</b> name, company, IP, device info. This page runs no analytics
+          and loads no external resources — it makes zero requests to any other host.</li>
+        <li><b>Used for:</b> (1) aggregate numbers in a course project and an investor deck;
+          (2) one TestFlight invite email when the beta opens. Nothing else.</li>
+        <li><b>Never:</b> sold, traded, passed to a third party, or followed by a second email.</li>
+        <li><b>Deletion:</b> email <b data-cfg="FALLBACK_EMAIL"></b> and I delete it by hand.
+          This is a one-person project with no self-serve delete — that&rsquo;s the honest
+          state of it, not a design choice.</li>
+      </ul>
+    </details>
+  </section>
+
+  <p class="meta">
+    <span class="zh">9 題 · 除 email 外全部選填 · 約 90 秒</span>
+    <span class="en">9 questions · everything but the email is optional · about 90 seconds</span>
+  </p>
+
+  <!-- ══ THE FORM ═══════════════════════════════════════════ -->
+  <form id="f" novalidate>
+
+    <!-- ── group 1 · who you are ─────────────────────────── -->
+    <fieldset class="group">
+      <h2><span class="n">01</span><span class="zh">你是誰</span><span class="en">Who you are</span></h2>
+
+      <fieldset class="q">
+        <legend><span class="qn">Q1</span><span class="zh">你現在主要在什麼情境用英語？</span><span class="en">Where do you mostly use English right now?</span></legend>
+        <div class="opts">
+          <label class="opt"><input type="radio" name="q1_context" value="study_abroad"><span><i class="zh">在英語環境念書／上課</i><i class="en">Studying in an English-speaking environment</i></span></label>
+          <label class="opt"><input type="radio" name="q1_context" value="work_english"><span><i class="zh">工作上用英語（會議、同事、客戶）</i><i class="en">At work — meetings, colleagues, clients</i></span></label>
+          <label class="opt"><input type="radio" name="q1_context" value="prep"><span><i class="zh">準備考試或求職</i><i class="en">Prepping for a test or a job hunt</i></span></label>
+          <label class="opt"><input type="radio" name="q1_context" value="daily_life"><span><i class="zh">生活在英語環境（購物、看診、社交）</i><i class="en">Living in English — errands, appointments, small talk</i></span></label>
+          <label class="opt"><input type="radio" name="q1_context" value="self_study"><span><i class="zh">沒有硬性需求，自己在學</i><i class="en">No hard requirement, learning on my own</i></span></label>
+          <label class="opt"><input type="radio" name="q1_context" value="native"><span><i class="zh">英語是我的母語</i><i class="en">English is my first language</i></span></label>
+        </div>
+      </fieldset>
+    </fieldset>
+
+    <!-- ── group 2 · the core hypothesis ─────────────────── -->
+    <fieldset class="group">
+      <h2>
+        <span class="n">02</span>
+        <span class="zh">你的倒帶行為</span><span class="en">Your rewinding</span>
+        <span class="star">★</span>
+      </h2>
+      <p class="hint">
+        <span class="zh">這一組是整份問卷的重點。請回想<b>具體的最近一次</b>，不要回答平均或通常。</span>
+        <span class="en">This group is the point of the whole form. Answer about <b>one specific recent
+          session</b> — not your average, not what you usually do.</span>
+      </p>
+
+      <fieldset class="q">
+        <legend><span class="qn">Q2</span><span class="zh">過去七天，你有幾天聽英語音訊？</span><span class="en">In the last 7 days, how many days did you listen to English audio?</span></legend>
+        <p class="hint"><span class="zh">podcast、YouTube、有聲書、不看字幕的影集都算。</span><span class="en">Podcasts, YouTube, audiobooks, shows without subtitles — all count.</span></p>
+        <div class="opts">
+          <label class="opt"><input type="radio" name="q2_listen_days" value="0"><span><i class="zh">0 天</i><i class="en">0 days</i></span></label>
+          <label class="opt"><input type="radio" name="q2_listen_days" value="1_2"><span><i class="zh">1–2 天</i><i class="en">1–2 days</i></span></label>
+          <label class="opt"><input type="radio" name="q2_listen_days" value="3_5"><span><i class="zh">3–5 天</i><i class="en">3–5 days</i></span></label>
+          <label class="opt"><input type="radio" name="q2_listen_days" value="6_7"><span><i class="zh">6–7 天</i><i class="en">6–7 days</i></span></label>
+        </div>
+      </fieldset>
+
+      <fieldset class="q">
+        <legend><span class="qn">Q3</span><span class="zh">最近一次聽的時候，你倒帶重聽了幾次？</span><span class="en">The last time you listened — how many times did you rewind?</span></legend>
+        <p class="hint"><span class="zh">就是最近那一次，不是平均。</span><span class="en">That one session. Not your average.</span></p>
+        <div class="opts">
+          <label class="opt"><input type="radio" name="q3_rewind_count" value="0"><span><i class="zh">0 次</i><i class="en">Not once</i></span></label>
+          <label class="opt"><input type="radio" name="q3_rewind_count" value="1_2"><span><i class="zh">1–2 次</i><i class="en">1–2 times</i></span></label>
+          <label class="opt"><input type="radio" name="q3_rewind_count" value="3_5"><span><i class="zh">3–5 次</i><i class="en">3–5 times</i></span></label>
+          <label class="opt"><input type="radio" name="q3_rewind_count" value="6plus"><span><i class="zh">6 次以上</i><i class="en">6 or more</i></span></label>
+          <label class="opt"><input type="radio" name="q3_rewind_count" value="dontknow"><span><i class="zh">記不得了</i><i class="en">I don&rsquo;t remember</i></span></label>
+        </div>
+      </fieldset>
+
+      <fieldset class="q">
+        <legend><span class="qn">Q4</span><span class="zh">就想那最近的一次倒帶——你按下去的當下，是為了什麼？</span><span class="en">That most recent rewind — what were you doing it for?</span></legend>
+        <p class="hint"><span class="zh">只選一個，選最接近的那次。</span><span class="en">Pick one — whichever is closest to that actual moment.</span></p>
+        <div class="opts">
+          <label class="opt"><input type="radio" name="q4_rewind_reason" value="not_understood"><span><i class="zh">有個字或一整句沒聽懂</i><i class="en">I missed a word, or a whole sentence</i></span></label>
+          <label class="opt"><input type="radio" name="q4_rewind_reason" value="too_fast"><span><i class="zh">聽得出字，但速度或口音跟不上</i><i class="en">Heard the words, but the speed or accent lost me</i></span></label>
+          <label class="opt"><input type="radio" name="q4_rewind_reason" value="distracted"><span><i class="zh">分心了，根本沒在聽</i><i class="en">I zoned out — I wasn&rsquo;t listening</i></span></label>
+          <label class="opt"><input type="radio" name="q4_rewind_reason" value="replay_good"><span><i class="zh">講得太好，想再聽一次</i><i class="en">It was good; I wanted to hear it again</i></span></label>
+          <label class="opt"><input type="radio" name="q4_rewind_reason" value="find_spot"><span><i class="zh">在找剛剛某個段落</i><i class="en">I was scrubbing back to find a spot</i></span></label>
+          <label class="opt"><input type="radio" name="q4_rewind_reason" value="misclick"><span><i class="zh">誤觸</i><i class="en">Mis-tap</i></span></label>
+          <label class="opt"><input type="radio" name="q4_rewind_reason" value="never"><span><i class="zh">我沒倒帶過</i><i class="en">I don&rsquo;t rewind</i></span></label>
+        </div>
+      </fieldset>
+
+      <fieldset class="q">
+        <legend><span class="qn">Q5</span><span class="zh">那一次沒聽懂之後，你做了什麼？</span><span class="en">After you missed it, what did you actually do?</span></legend>
+        <p class="hint"><span class="zh">可複選。</span><span class="en">Select all that apply.</span></p>
+        <div class="opts">
+          <label class="opt"><input type="checkbox" name="q5_after_action" value="nothing"><span><i class="zh">什麼都沒做，繼續聽</i><i class="en">Nothing — I kept listening</i></span></label>
+          <label class="opt"><input type="checkbox" name="q5_after_action" value="slow"><span><i class="zh">放慢速度，或再倒帶一次</i><i class="en">Slowed it down, or rewound again</i></span></label>
+          <label class="opt"><input type="checkbox" name="q5_after_action" value="subs"><span><i class="zh">打開字幕或逐字稿</i><i class="en">Opened captions or a transcript</i></span></label>
+          <label class="opt"><input type="checkbox" name="q5_after_action" value="lookup"><span><i class="zh">當場查字典或 Google</i><i class="en">Looked it up on the spot</i></span></label>
+          <label class="opt"><input type="checkbox" name="q5_after_action" value="saved"><span><i class="zh">把它記下來／存起來</i><i class="en">Wrote it down or saved it</i></span></label>
+          <label class="opt"><input type="checkbox" name="q5_after_action" value="later"><span><i class="zh">事後（幾小時後或隔天）回頭查過</i><i class="en">Came back to it later that day or the next</i></span></label>
+          <label class="opt"><input type="checkbox" name="q5_after_action" value="ask"><span><i class="zh">問了別人</i><i class="en">Asked someone</i></span></label>
+        </div>
+      </fieldset>
+    </fieldset>
+
+    <!-- ── group 3 · what you use / what you've paid ─────── -->
+    <fieldset class="group">
+      <h2><span class="n">03</span><span class="zh">你現在怎麼做</span><span class="en">What you do today</span></h2>
+
+      <fieldset class="q">
+        <legend><span class="qn">Q6</span><span class="zh">你現在用什麼在練聽力或口說？</span><span class="en">What are you using to practise listening or speaking?</span></legend>
+        <p class="hint"><span class="zh">可複選。</span><span class="en">Select all that apply.</span></p>
+        <div class="opts">
+          <label class="opt"><input type="checkbox" name="q6_current_tools" value="none"><span><i class="zh">沒有特別在練</i><i class="en">Nothing in particular</i></span></label>
+          <label class="opt"><input type="checkbox" name="q6_current_tools" value="app"><span><i class="zh">學習 App（Duolingo 那類）</i><i class="en">A learning app (Duolingo and friends)</i></span></label>
+          <label class="opt"><input type="checkbox" name="q6_current_tools" value="flash"><span><i class="zh">單字卡／Anki</i><i class="en">Flashcards / Anki</i></span></label>
+          <label class="opt"><input type="checkbox" name="q6_current_tools" value="class"><span><i class="zh">課程或家教</i><i class="en">A class or a tutor</i></span></label>
+          <label class="opt"><input type="checkbox" name="q6_current_tools" value="video_subs"><span><i class="zh">看影片配字幕</i><i class="en">Video with subtitles</i></span></label>
+          <label class="opt"><input type="checkbox" name="q6_current_tools" value="exchange"><span><i class="zh">語言交換／對話練習</i><i class="en">Language exchange / conversation practice</i></span></label>
+          <label class="opt"><input type="checkbox" name="q6_current_tools" value="ai"><span><i class="zh">跟 AI 聊天練習</i><i class="en">Practising with an AI chatbot</i></span></label>
+        </div>
+      </fieldset>
+
+      <fieldset class="q">
+        <legend><span class="qn">Q7</span><span class="zh">過去 12 個月，你為了學英語花過多少錢？</span><span class="en">In the last 12 months, what did you actually spend on learning English?</span></legend>
+        <p class="hint"><span class="zh">課程、App 訂閱、家教、教材都算。</span><span class="en">Classes, app subscriptions, tutors, books — all of it.</span></p>
+        <div class="opts">
+          <label class="opt"><input type="radio" name="q7_past_spend" value="0"><span><i class="zh">沒花過</i><i class="en">Nothing</i></span></label>
+          <label class="opt"><input type="radio" name="q7_past_spend" value="lt500"><span><i class="zh">NT$1–500（約 US$15 以下）</i><i class="en">Under about US$15</i></span></label>
+          <label class="opt"><input type="radio" name="q7_past_spend" value="500_2000"><span><i class="zh">NT$500–2,000（約 US$15–60）</i><i class="en">About US$15–60</i></span></label>
+          <label class="opt"><input type="radio" name="q7_past_spend" value="gt2000"><span><i class="zh">NT$2,000 以上（約 US$60 以上）</i><i class="en">More than about US$60</i></span></label>
+          <label class="opt"><input type="radio" name="q7_past_spend" value="sub_active"><span><i class="zh">有訂閱制，現在還在付</i><i class="en">I have a subscription I&rsquo;m still paying for</i></span></label>
+        </div>
+      </fieldset>
+    </fieldset>
+
+    <!-- ── group 4 · the demo ────────────────────────────── -->
+    <fieldset class="group">
+      <h2><span class="n">04</span><span class="zh">對 demo 的反應</span><span class="en">On the demo</span></h2>
+      <p class="hint"><span class="zh">還沒看過 demo 的話，這兩題跳過就好。</span><span class="en">Haven&rsquo;t seen the demo? Skip these two.</span></p>
+
+      <fieldset class="q">
+        <legend><span class="qn">Q8</span><span class="zh">看完 demo，你的第一個反應最接近哪個？</span><span class="en">First reaction after the demo — which is closest?</span></legend>
+        <div class="opts">
+          <label class="opt"><input type="radio" name="q8_demo_reaction" value="want_now"><span><i class="zh">這就是我要的，想現在裝</i><i class="en">That&rsquo;s what I want — install it now</i></span></label>
+          <label class="opt"><input type="radio" name="q8_demo_reaction" value="interested"><span><i class="zh">有意思，但我不確定自己會用</i><i class="en">Interesting, but I&rsquo;m not sure I&rsquo;d use it</i></span></label>
+          <label class="opt"><input type="radio" name="q8_demo_reaction" value="not_my_problem"><span><i class="zh">我懂它在做什麼，但我沒這個問題</i><i class="en">I get it, but I don&rsquo;t have this problem</i></span></label>
+          <label class="opt"><input type="radio" name="q8_demo_reaction" value="confused"><span><i class="zh">我沒看懂它在做什麼</i><i class="en">I couldn&rsquo;t tell what it does</i></span></label>
+        </div>
+      </fieldset>
+
+      <fieldset class="q">
+        <legend><span class="qn">Q9</span><span class="zh">哪一點你最懷疑？或你最想要的一件事是什麼？</span><span class="en">What do you doubt most? Or the one thing you&rsquo;d most want?</span></legend>
+        <label class="hint" for="q9">
+          <span class="zh">一句話就好。懷疑的那句對我更有用。</span>
+          <span class="en">One line is plenty. The doubt is the more useful half.</span>
+        </label>
+        <textarea id="q9" name="q9_doubt" rows="3" maxlength="600"></textarea>
+      </fieldset>
+    </fieldset>
+
+    <!-- ── contact ───────────────────────────────────────── -->
+    <div class="contact">
+      <div class="lab">
+        <span class="zh">Email</span><span class="en">Email</span>
+        <span class="req"><span class="zh">· 唯一必填</span><span class="en">· the only required field</span></span>
+      </div>
+      <p class="hint">
+        <span class="zh">TestFlight 開放時寄一次邀請，就這一封。</span>
+        <span class="en">One invite when TestFlight opens. That one email, nothing else.</span>
+      </p>
+      <input type="email" id="email" name="email" inputmode="email" autocomplete="email"
+             autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="you@example.com">
+      <div class="err" id="err-email">
+        <span class="zh">請填一個看起來正確的 email——不然邀請信會寄丟。</span>
+        <span class="en">That doesn&rsquo;t look like an email — the invite would bounce.</span>
+      </div>
+
+      <label class="check">
+        <input type="checkbox" id="consent" name="consent">
+        <span>
+          <i class="zh">我同意把上面的答案用於這個產品的研究，並在 TestFlight 開放時收到一封邀請信。</i>
+          <i class="en">I agree to my answers being used for this product&rsquo;s research, and to receiving one TestFlight invite.</i>
+        </span>
+      </label>
+      <div class="err" id="err-consent">
+        <span class="zh">需要這個勾選才能送出——沒有勾選就不是同意。</span>
+        <span class="en">Required to submit. An unchecked box is not consent.</span>
+      </div>
+
+      <label class="check">
+        <input type="checkbox" id="interview_ok" name="interview_ok">
+        <span>
+          <i class="zh">我願意花 15 分鐘聊聊我的聽力卡點（之後另外約時間）</i>
+          <i class="en">I&rsquo;d spend 15 minutes talking about where my listening breaks (we&rsquo;ll arrange a time)</i>
+        </span>
+      </label>
+    </div>
+
+    <button type="submit" class="submit" id="submit">
+      <span class="zh">送出</span><span class="en">Submit</span>
+    </button>
+  </form>
+
+  <!-- ── rescue panel (submit failed) ─────────────────────── -->
+  <section class="panel" id="rescue" tabindex="-1">
+    <div class="rescue">
+      <h3><span class="zh">送不出去。</span><span class="en">That didn&rsquo;t go through.</span></h3>
+      <p>
+        <span class="zh">攤位的網路常常這樣。三個備援，任何一個都算數：</span>
+        <span class="en">Booth wifi does this. Three backups — any one of them works:</span>
+      </p>
+      <div class="btns">
+        <button type="button" class="btn primary" id="retry">
+          <span class="zh">1 · 再試一次</span><span class="en">1 · Try again</span>
+        </button>
+        <a class="btn" id="mailtolink" href="#">
+          <span class="zh">2 · 用 email 寄出（答案已經帶上）</span><span class="en">2 · Send it by email (answers attached)</span>
+        </a>
+        <button type="button" class="btn" id="copybtn">
+          <span class="zh">3 · 複製下面這段文字</span><span class="en">3 · Copy the text below</span>
+        </button>
+      </div>
+      <p class="why" id="failreason"></p>
+      <textarea id="dump" readonly rows="8"></textarea>
+      <p class="why">
+        <span class="zh">截圖也可以。把它給攤位上的人就行。</span>
+        <span class="en">A screenshot is fine too. Just show it to someone at the booth.</span>
+      </p>
+    </div>
+  </section>
+
+  <!-- ── success ──────────────────────────────────────────── -->
+  <section class="panel" id="done" tabindex="-1">
+    <div class="done">
+      <div class="stamp"><span class="zh">已收到</span><span class="en">Received</span></div>
+      <h2><span class="zh">收到了。</span><span class="en">Got it.</span></h2>
+      <p class="zh"><b>TestFlight 還沒開放。</b>開放的那一天，我們會寄一封信到
+        <b id="doneemail-zh"></b>——只有那一封，不做電子報。</p>
+      <p class="en"><b>TestFlight isn&rsquo;t open yet.</b> The day it is, one email goes to
+        <b id="doneemail-en"></b> — that one, and no newsletter after it.</p>
+      <p class="zh">你剛剛填的東西，是這個假設<b>第一份來自陌生人的證據</b>。
+        在你之前，這個產品只有一個使用者，而那個人是我。</p>
+      <p class="en">What you just filled in is the <b>first evidence for this idea that
+        didn&rsquo;t come from me</b>. Before you, this product had exactly one user, and
+        he built it.</p>
+    </div>
+  </section>
+
+  <footer class="foot">
+    Echo · <span class="zh">攤位問卷</span><span class="en">booth survey</span>
+    <span id="ver"></span><br>
+    <span class="zh">零外部資源：這一頁不對任何其他主機發出請求。</span>
+    <span class="en">Zero external resources: this page requests nothing from any other host.</span>
+  </footer>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  var form    = document.getElementById('f');
+  var btn     = document.getElementById('submit');
+  var rescue  = document.getElementById('rescue');
+  var done    = document.getElementById('done');
+  var dump    = document.getElementById('dump');
+  var root    = document.documentElement;
+
+  var UNSET = function (v) { return !v || v.indexOf('__') !== -1; };
+
+  /* ── config check ────────────────────────────────────────
+     A QR code pointing at an unconfigured form loses every response
+     silently. Make that state impossible to miss. */
+  (function () {
+    var missing = [];
+    if (UNSET(ENDPOINT))       missing.push('ENDPOINT');
+    if (UNSET(FALLBACK_EMAIL)) missing.push('FALLBACK_EMAIL');
+    if (missing.length) {
+      var w = document.getElementById('cfgwarn');
+      w.innerHTML = '⚠ <b>NOT CONFIGURED</b> — ' + missing.join(' + ') +
+        ' still placeholder. Replace in the &lt;head&gt; of this file before printing any QR code.';
+      w.style.display = 'block';
+    }
+  })();
+
+  document.getElementById('ver').textContent = '· ' + FORM_VERSION;
+
+  /* Inject the contact address into the privacy copy so it can never
+     disagree with the mailto: fallback. */
+  Array.prototype.forEach.call(document.querySelectorAll('[data-cfg="FALLBACK_EMAIL"]'), function (el) {
+    el.textContent = UNSET(FALLBACK_EMAIL) ? '（未設定 / not set）' : FALLBACK_EMAIL;
+  });
+
+  /* External privacy page if there is one; otherwise the link keeps
+     pointing at the inline <details>, which we then open on click. */
+  var plink = document.getElementById('privacylink');
+  if (!UNSET(PRIVACY_URL)) {
+    plink.href = PRIVACY_URL;
+    plink.target = '_blank';
+    plink.rel = 'noopener';
+  } else {
+    plink.addEventListener('click', function () {
+      document.getElementById('privacy').open = true;
+    });
+  }
+
+  /* ── language toggle ─────────────────────────────────── */
+  var zhBtn = document.getElementById('lang-zh');
+  var enBtn = document.getElementById('lang-en');
+  function setLang(l) {
+    root.dataset.lang = l;
+    root.setAttribute('lang', l === 'zh' ? 'zh-Hant' : 'en');
+    zhBtn.setAttribute('aria-pressed', String(l === 'zh'));
+    enBtn.setAttribute('aria-pressed', String(l === 'en'));
+  }
+  zhBtn.addEventListener('click', function () { setLang('zh'); });
+  enBtn.addEventListener('click', function () { setLang('en'); });
+  setLang(root.dataset.lang === 'en' ? 'en' : 'zh');
+
+  function lang() { return root.dataset.lang === 'en' ? 'en' : 'zh'; }
+
+  /* ── which QR code did they come from? ───────────────────
+     `?src=poster` (scanned off the poster, before I pitch) vs
+     `?src=demo` (handed over after the demo). Splitting the two is the
+     only control we have for the poster priming the answer to Q4, and
+     it costs zero questions. */
+  var src = 'unknown';
+  try {
+    var p = new URLSearchParams(location.search).get('src');
+    if (p && /^[a-z0-9_-]{1,24}$/i.test(p)) src = p.toLowerCase();
+  } catch (e) { /* ancient browser: leave it unknown */ }
+
+  /* ── collect ─────────────────────────────────────────── */
+
+  function labelOf(input) {
+    var lb = input.closest('label');
+    if (!lb) return input.value;
+    var t = lb.querySelector('i.' + lang()) || lb.querySelector('i');
+    return t ? t.textContent.trim() : input.value;
+  }
+
+  function collect() {
+    var answers = {};
+    var readable = [];
+
+    Array.prototype.forEach.call(form.querySelectorAll('fieldset.q'), function (q) {
+      var radios = q.querySelectorAll('input[type=radio]:checked');
+      var checks = q.querySelectorAll('input[type=checkbox]:checked');
+      var area   = q.querySelector('textarea');
+      var qn     = q.querySelector('.qn');
+      var tag    = qn ? qn.textContent.trim() : '?';
+
+      if (radios.length) {
+        answers[radios[0].name] = radios[0].value;
+        readable.push(tag + ': ' + radios[0].value + '  (' + labelOf(radios[0]) + ')');
+      } else if (checks.length) {
+        var vals = [], txt = [];
+        Array.prototype.forEach.call(checks, function (c) { vals.push(c.value); txt.push(labelOf(c)); });
+        answers[checks[0].name] = vals;
+        readable.push(tag + ': ' + vals.join(', ') + '  (' + txt.join(' / ') + ')');
+      } else if (area && area.value.trim()) {
+        answers[area.name] = area.value.trim();
+        readable.push(tag + ': ' + area.value.trim());
+      }
+    });
+
+    var email = document.getElementById('email').value.trim();
+    var payload = {
+      form_version: FORM_VERSION,
+      src: src,
+      submitted_at: new Date().toISOString(),
+      lang: lang(),
+      email: email,
+      consent: document.getElementById('consent').checked,
+      interview_ok: document.getElementById('interview_ok').checked,
+      answers: answers
+    };
+
+    var text =
+      'Echo booth survey — ' + FORM_VERSION + '\n' +
+      'src: ' + src + '\n' +
+      'when: ' + payload.submitted_at + '\n' +
+      'email: ' + email + '\n' +
+      'consent: yes' + (payload.interview_ok ? ' · 15-min interview: YES' : '') + '\n' +
+      '----\n' + readable.join('\n');
+
+    return { payload: payload, text: text };
+  }
+
+  /* ── validation (email + consent only; everything else optional) ── */
+
+  function showErr(id, on) { document.getElementById(id).classList.toggle('on', on); }
+
+  function validate() {
+    var email = document.getElementById('email').value.trim();
+    // Deliberately loose: something@something.something. A strict RFC regex
+    // rejects real addresses, and a rejected visitor at a booth just walks away.
+    var okEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+    var okConsent = document.getElementById('consent').checked;
+    showErr('err-email', !okEmail);
+    showErr('err-consent', !okConsent);
+    if (!okEmail) { document.getElementById('email').focus(); return false; }
+    if (!okConsent) { document.getElementById('consent').focus(); return false; }
+    return true;
+  }
+
+  /* ── submit ──────────────────────────────────────────── */
+
+  var last = null;
+
+  function busy(on) {
+    btn.disabled = on;
+    if (on) btn.textContent = (lang() === 'en' ? 'Sending…' : '送出中…');
+    else    btn.innerHTML = '<span class="zh">送出</span><span class="en">Submit</span>';
+  }
+
+  function succeed(email) {
+    form.style.display = 'none';
+    rescue.classList.remove('on');
+    document.getElementById('doneemail-zh').textContent = email;
+    document.getElementById('doneemail-en').textContent = email;
+    done.classList.add('on');
+    done.focus();
+    done.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  function fail(reason) {
+    dump.value = last.text;
+    document.getElementById('failreason').textContent = reason;
+    var mail = document.getElementById('mailtolink');
+    if (UNSET(FALLBACK_EMAIL)) {
+      mail.style.display = 'none';
+    } else {
+      // ~1800 chars keeps the URL under the limits mail clients actually enforce.
+      var body = last.text.length > 1800 ? last.text.slice(0, 1800) + '\n…(truncated)' : last.text;
+      mail.href = 'mailto:' + FALLBACK_EMAIL +
+        '?subject=' + encodeURIComponent('Echo booth survey — ' + last.payload.email) +
+        '&body=' + encodeURIComponent(body);
+    }
+    rescue.classList.add('on');
+    rescue.focus();
+    rescue.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  function send() {
+    busy(true);
+    rescue.classList.remove('on');
+
+    if (UNSET(ENDPOINT)) {
+      busy(false);
+      fail('ENDPOINT is still a placeholder — nothing was sent. Use option 2 or 3.');
+      return;
+    }
+
+    // A hung request is worse than a failed one: the visitor watches a spinner
+    // and leaves. Ten seconds, then hand them the rescue panel.
+    var ctrl = ('AbortController' in window) ? new AbortController() : null;
+    var timer = ctrl ? setTimeout(function () { ctrl.abort(); }, 10000) : null;
+
+    fetch(ENDPOINT, {
+      method: 'POST',
+      headers: { 'Content-Type': CONTENT_TYPE },
+      body: JSON.stringify(last.payload),
+      signal: ctrl ? ctrl.signal : undefined
+    })
+      .then(function (res) {
+        if (timer) clearTimeout(timer);
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        busy(false);
+        succeed(last.payload.email);
+      })
+      .catch(function (err) {
+        if (timer) clearTimeout(timer);
+        busy(false);
+        fail(String(err && err.message ? err.message : err));
+      });
+  }
+
+  form.addEventListener('submit', function (e) {
+    e.preventDefault();
+    if (!validate()) return;
+    last = collect();
+    send();
+  });
+
+  document.getElementById('retry').addEventListener('click', function () {
+    last = collect();   // re-read: they may have edited something meanwhile
+    send();
+  });
+
+  document.getElementById('copybtn').addEventListener('click', function () {
+    dump.focus();
+    dump.select();
+    var ok = false;
+    try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+    if (!ok && navigator.clipboard) {
+      navigator.clipboard.writeText(dump.value).then(function () { flash(true); }, function () { flash(false); });
+      return;
+    }
+    flash(ok);
+  });
+
+  function flash(ok) {
+    var b = document.getElementById('copybtn');
+    b.textContent = ok
+      ? (lang() === 'en' ? 'Copied ✓' : '已複製 ✓')
+      : (lang() === 'en' ? 'Select it and copy by hand' : '請手動選取複製');
+    setTimeout(function () {
+      b.innerHTML = '<span class="zh">3 · 複製下面這段文字</span><span class="en">3 · Copy the text below</span>';
+    }, 2500);
+  }
+
+  // Clear an error the moment it stops being true.
+  document.getElementById('email').addEventListener('input', function () { showErr('err-email', false); });
+  document.getElementById('consent').addEventListener('change', function () { showErr('err-consent', false); });
+})();
+</script>
+</body>
+</html>
