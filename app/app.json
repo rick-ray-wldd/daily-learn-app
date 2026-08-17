@@ -41,8 +41,7 @@
     "plugins": [
       "expo-audio",
       "expo-asset",
-      "expo-status-bar",
-      "./plugins/withEchoWidget"
+      "expo-status-bar"
     ],
     "extra": {
       "eas": {
@@ -51,7 +50,7 @@
     },
     "owner": "rickray",
     "runtimeVersion": {
-      "policy": "fingerprint"
+      "policy": "sdkVersion"
     },
     "updates": {
       "url": "https://u.expo.dev/8ec78b95-8db7-4b5e-921f-3efacbf56dfc"
