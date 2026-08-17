@@ -33,6 +33,9 @@ app/.env
 docs/03-fundraising/
 docs/04-research/
 docs/01-product/competitors.md
+# 單一競品的展開版，與 competitors.md 同性質（含定位風險與 Echo 的自評弱點）。
+# 用 glob 而非逐檔列舉：下一份展開檔忘了加一行就會靜靜地進公開 repo。
+docs/01-product/competitors-*.md
 docs/01-product/architecture-local.md
 # 攤位話術：含「用戶數只有 1 怎麼答」與未達標里程碑的自評。
 # 對手或評審在對談前讀到這份，等於先看到底牌。

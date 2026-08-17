@@ -39,7 +39,9 @@ import { commitSavedTerm, isTermSaved } from './lib/selection';
 import { getSegments } from './lib/transcript';
 import { getCaptures, getSrsItems, initStore, rememberEpisode, subscribe } from './lib/store';
 import { isDue, toDateStr, todayStr } from './lib/srs';
+import { shuffledDemoCaptures } from './lib/demoDeck';
 import {
+  fireDemoQuizSoon,
   getLastQuizStatus,
   harvestQuizResponse,
   QUIZ_KIND,
@@ -899,7 +901,18 @@ export default function App() {
 
         {/* 倒帶推斷與題目排程的自我報告。UpdateStatus 沒有 owner，所以這塊自己長在
             外殼裡，視覺規格照抄它（收合一行、caption、C.faint）。 */}
-        <DevProbes probes={probes} boot={audioBootProbe} quiz={quizStatus} />
+        <DevProbes
+          probes={probes}
+          boot={audioBootProbe}
+          quiz={quizStatus}
+          onDemoQuiz={() => {
+            // 示範題不進 store（見 lib/demoDeck.ts 檔頭），所以這裡不必先 initStore，
+            // 也不會有任何一個指標被它動到。
+            void fireDemoQuizSoon(shuffledDemoCaptures(), DEMO_QUIZ_DELAY_SEC).then(
+              setQuizStatus,
+            );
+          }}
+        />
 
         <View style={styles.tabContent}>
           {tab === 'home' ? (
@@ -1079,14 +1092,24 @@ function probeLine(p: RewindProbe): string {
   return `${clockTime(p.at_ms)}  −${p.delta.toFixed(1)}s  ${verdictText(p)}  ${where} ${p.rate}×${paused}`;
 }
 
+/**
+ * 按下示範題到通知響之間的秒數。
+ *
+ * 12 秒是 demo 現場量出來的下限：說完一句話、把手機遞出去、鎖上螢幕，大約就是
+ * 這麼久。再短他會來不及鎖屏（通知在前景只會從上面滑過，看不到鎖屏那張卡）。
+ */
+const DEMO_QUIZ_DELAY_SEC = 12;
+
 function DevProbes({
   probes,
   boot,
   quiz,
+  onDemoQuiz,
 }: {
   probes: readonly RewindProbe[];
   boot: AudioBootProbe;
   quiz: QuizStatus | null;
+  onDemoQuiz: () => void;
 }) {
   const [open, setOpen] = useState(false);
   // 'function' 以外就是這顆 binary 沒有那支原生函式——那比任何一道閘更能解釋
@@ -1130,6 +1153,17 @@ function DevProbes({
             ))
           )}
           {/* 沒有複製按鈕：clipboard 要新套件，本輪禁令。實測完截圖回報即可。 */}
+
+          {/* 示範題：走**同一個出題器**，只是資料是預設的、觸發時間是幾秒後。
+              它排的是一則額外通知，不會取消今天的真題（下一次 sync 會一併清掉它）。 */}
+          <Pressable onPress={onDemoQuiz} style={styles.probeBtn} hitSlop={6}>
+            <Text style={styles.probeBtnText}>
+              {`示範題 · ${DEMO_QUIZ_DELAY_SEC} 秒後響（按完請鎖螢幕）`}
+            </Text>
+          </Pressable>
+          <Text style={styles.probeLine}>
+            示範題用預設單字，不寫進任何統計，答完也不會推進 SRS。
+          </Text>
         </View>
       )}
     </View>
@@ -1225,6 +1259,21 @@ const styles = StyleSheet.create({
   // 數字要對齊才看得出「跳幅是不是每次都一樣」，所以走 mono（tabular-nums）。
   probeMono: { ...TYPE.mono, color: C.dim, fontWeight: '400' },
   probeMonoWarn: { ...TYPE.mono, color: C.highlightInk, fontWeight: '400' },
+  /**
+   * 示範題按鈕。用琥珀（highlight）不是綠（accent）：綠＝學習者動手了，
+   * 而這顆按鈕產生的是**假資料**——它在語意上更接近「app 在演」，那是琥珀。
+   */
+  probeBtn: {
+    marginTop: SP(1),
+    alignSelf: 'flex-start',
+    paddingVertical: SP(1.5),
+    paddingHorizontal: SP(3),
+    borderRadius: R.pill,
+    borderWidth: 1,
+    borderColor: C.highlightInk,
+    backgroundColor: C.highlight,
+  },
+  probeBtnText: { ...TYPE.caption, color: C.highlightInk, fontWeight: '600' },
 
   quizFeedback: { ...TYPE.caption, marginTop: SP(1), fontWeight: '400' },
 

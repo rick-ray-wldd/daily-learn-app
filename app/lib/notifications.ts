@@ -208,6 +208,84 @@ export async function syncQuizNotifications(queue: Capture[]): Promise<QuizStatu
   return status;
 }
 
+/**
+ * 示範模式：立刻排一則題目通知（預設 10 秒後響）。
+ *
+ * ## 它與正式路徑的關係
+ *
+ * **出題器完全共用**——一樣走 `buildQuiz` → `buildDeck` → `buildCard` 的同一組閘。
+ * 只有兩件事不同：資料從呼叫端傳進來（`lib/demoDeck.ts`，不進 store），
+ * 以及觸發時間被指定成「幾秒後」而不是下一個時段。
+ *
+ * 這一點很重要：如果示範模式自己寫一套簡化的出題邏輯，demo 上跑得動的東西就
+ * 不代表產品跑得動。共用出題器意味著**示範會出題，就證明真資料也會出題**。
+ *
+ * ## 它推不動任何 SRS，而且那是對的
+ *
+ * `harvestQuizResponse` 第一件事是 `getCapture(card_id)`；示範 capture 不在 store 裡，
+ * 所以回 `srs_skip: 'card-missing'`、**一個字都不寫**。示範答題可以看到回饋，
+ * 但不會在 `difficulty_items` 留下任何一筆假資料。
+ *
+ * ⚠️ 這支**刻意不更新** `lastQuizStatus` / `lastSyncDate`：它排的是一則額外的示範
+ * 通知，不是「今天的題目已經排好了」。讓它去動節流狀態，會使下一次真正的
+ * `syncQuizNotifications` 被 10 分鐘節流擋掉，真題就這樣被示範題頂掉了。
+ */
+export async function fireDemoQuizSoon(
+  queue: Capture[],
+  delaySeconds = 10,
+): Promise<QuizStatus> {
+  if (Platform.OS === 'web') {
+    return makeStatus({ scheduled: 0, summary_zh: 'web 沒有本地通知。' });
+  }
+
+  try {
+    if (!(await ensurePermissions())) {
+      return makeStatus({
+        scheduled: 0,
+        blocked: 'other',
+        summary_zh: '沒有通知權限，示範題排不出去。',
+      });
+    }
+
+    if (Platform.OS === 'android') {
+      await Notifications.setNotificationChannelAsync(QUIZ_KIND, {
+        name: '每日題目',
+        importance: Notifications.AndroidImportance.DEFAULT,
+      });
+    }
+
+    const built = buildQuiz({ queue, today: todayStr(), maxQuestions: 1 });
+    const q = built.questions[0];
+    if (!q) {
+      return makeStatus({
+        scheduled: 0,
+        skipped: built.skipped,
+        blocked: built.blocked,
+        // 出不了題時要講**為什麼**——示範資料出不了題等於出題器有 bug，
+        // 那比沒有通知嚴重得多，不能只顯示「0 題」。
+        summary_zh: `示範題出不來：${built.summary_zh}`,
+      });
+    }
+
+    const fireDate = new Date(Date.now() + Math.max(5, delaySeconds) * 1000);
+    await scheduleQuestion(q, QUIZ_SLOTS[0], fireDate);
+
+    const secs = Math.max(5, delaySeconds);
+    return makeStatus({
+      scheduled: 1,
+      skipped: built.skipped,
+      summary_zh: `示範題已排：${secs} 秒後鎖上螢幕就會跳出「${q.prompt}」。`,
+    });
+  } catch (err) {
+    console.warn('[notifications] fireDemoQuizSoon failed:', err);
+    return makeStatus({
+      scheduled: 0,
+      blocked: 'other',
+      summary_zh: `示範題排程失敗：${errText(err)}`,
+    });
+  }
+}
+
 /** 這支**永遠不丟例外**：任何失敗都轉成一個如實描述失敗的 QuizStatus。 */
 async function runQuizSync(queue: Capture[], today: string): Promise<QuizStatus> {
   // 在 try 外面宣告，failure 分支才能回報**實際排出去幾則**而不是謊報 0。
@@ -286,6 +364,14 @@ async function runQuizSync(queue: Capture[], today: string): Promise<QuizStatus>
 async function scheduleQuestion(
   q: QuizQuestion,
   slot: { hour: number; minute: number },
+  /**
+   * 示範模式用：直接指定觸發時間，跳過 `nextSlotDate` 的順延規則。
+   *
+   * 正式路徑**永遠不傳這一個**——順延到明天是刻意的（一開 app 就跳題目通知會讓人
+   * 把通知權限關掉）。但 demo 現場沒辦法等到 12:30，所以留一個明確的旁路，
+   * 而不是去把那條規則改鬆。
+   */
+  fireDateOverride?: Date,
 ): Promise<void> {
   /**
    * 🔴 `deck_date` 是**這則通知會在哪一天響**，不是「排程的今天」。
@@ -302,7 +388,7 @@ async function scheduleQuestion(
    * `nextSlotDate()` **只准算一次**：算兩次會在午夜前後拿到差一天的兩個答案，
    * 讓通知身上的 `deck_date` 與它真正的觸發時間對不起來。
    */
-  const fireDate = nextSlotDate(slot);
+  const fireDate = fireDateOverride ?? nextSlotDate(slot);
   const deckDate = toDateStr(fireDate);
 
   // 一張題目一個 category：iOS 的 action 按鈕標題在**註冊時**就固定，而三個選項的
