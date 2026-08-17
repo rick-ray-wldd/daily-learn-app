@@ -344,7 +344,17 @@
   }
   .rescue .why { font-size: 13px; color: var(--ink-mid); margin: 10px 0 0; }
 
-  .done { border: 1px solid var(--signal); background: var(--signal-soft); padding: 22px 18px; }
+  /* 假設那一句的落點。它從標題被移到這裡（見 #done 上方的註解）：
+   送出後才出現，量測已經結束，汙染不到任何一題。 */
+.tagline {
+  margin-top: .75rem;
+  font-size: 1.05rem;
+  font-weight: 600;
+  line-height: 1.45;
+  color: var(--signal);
+}
+
+.done { border: 1px solid var(--signal); background: var(--signal-soft); padding: 22px 18px; }
   .done h2 {
     font-family: var(--display); font-size: 27px; font-weight: 800; letter-spacing: -0.03em;
     border: 0; padding: 0; margin: 0 0 10px; display: block; color: var(--ink);
@@ -373,21 +383,28 @@
         <button type="button" id="lang-en" aria-pressed="false" lang="en">EN</button>
       </div>
     </div>
+    <!-- ⚠️ 這個標題**刻意不含假設**。
+         原本這裡印的是「你已經告訴過我們，你哪裡沒聽懂。」——與海報、簡報一字不差。
+         那句話會出現在 Q4 上方三個螢幕高的地方，兩組受訪者同時看到，
+         `?src=poster` vs `?src=demo` 的差值裡完全減不掉它。核心假設以肯定句
+         印在題目上方，等於沒有控制組。那句話移到送出後的成功面板（#done），
+         contaminate 不到任何一題。 -->
     <h1>
-      <span class="zh">你已經告訴過我們，你哪裡沒聽懂。</span>
-      <span class="en">You already told us what you didn&rsquo;t understand.</span>
+      <span class="zh">關於你怎麼聽英語 · 9 題</span>
+      <span class="en">How you listen to English · 9 questions</span>
     </h1>
   </header>
 
   <!-- ── what we do with this ─────────────────────────────── -->
   <section class="intro">
-    <p class="zh">這份問卷在驗證一件事：<b>按返回鍵重聽，是不是因為沒聽懂。</b>
-      你的答案只會以統計數字出現在課堂與簡報裡，<b>不會有姓名</b>。
+    <!-- 方向中性但一樣誠實：說明在研究什麼，不說明期待哪個答案。 -->
+    <p class="zh">我們在研究一件事：<b>人聽英語的時候，為什麼會倒回去重聽</b>——
+      各種原因各佔多少。你的答案只會以統計數字出現在課堂與簡報裡，<b>不會有姓名</b>。
       email 只做一件事——TestFlight 開放時寄一次邀請，不做電子報。</p>
-    <p class="en">This form tests exactly one thing: <b>is hitting rewind a signal that you
-      didn&rsquo;t understand?</b> Your answers appear only as aggregate numbers —
-      <b>never your name</b>. Your email does one thing: a single TestFlight invite when
-      the beta opens. No newsletter.</p>
+    <p class="en">We&rsquo;re studying one thing: <b>why people rewind when they listen
+      to English</b> — and how the reasons break down. Your answers appear only as
+      aggregate numbers — <b>never your name</b>. Your email does one thing: a single
+      TestFlight invite when the beta opens. No newsletter.</p>
     <p><a id="privacylink" href="#privacy"><span class="zh">我們怎麼處理這些資料 →</span><span class="en">What we do with your data →</span></a></p>
 
     <details class="privacy" id="privacy">
@@ -639,6 +656,11 @@
     <div class="done">
       <div class="stamp"><span class="zh">已收到</span><span class="en">Received</span></div>
       <h2><span class="zh">收到了。</span><span class="en">Got it.</span></h2>
+      <!-- 假設那句話搬到這裡：送出後才出現，量測已經完成，汙染不到任何一題。 -->
+      <p class="tagline">
+        <span class="zh">你已經告訴過我們，你哪裡沒聽懂。</span>
+        <span class="en">You already told us what you didn&rsquo;t understand.</span>
+      </p>
       <p class="zh"><b>TestFlight 還沒開放。</b>開放的那一天，我們會寄一封信到
         <b id="doneemail-zh"></b>——只有那一封，不做電子報。</p>
       <p class="en"><b>TestFlight isn&rsquo;t open yet.</b> The day it is, one email goes to

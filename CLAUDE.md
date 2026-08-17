@@ -39,7 +39,7 @@
 | `docs/03-fundraising/` | 🔒 pitch 大綱、投資人策略、objection FAQ |
 | `docs/04-research/` | 🔒 用戶訪談指南與紀錄、技術筆記 |
 | `app/` | MVP 程式碼（Expo，W1 開始） |
-| `design/` | mockup、demo 影片、視覺資產 |
+| `design/` | mockup、demo 影片、視覺資產。**印刷品的來源是 HTML，PDF 是 build output**：A2 海報（`poster-pre-demo-day{,-en}.html`）與 16:9 簡報（`deck-demo-day{,-en}.html`）各有中英雙版，一律用 `node design/build-pdf.mjs` 產生（可加 `poster` / `deck` 只跑一種）。它會驗證紙張尺寸、頁數、以及有沒有內容被裁掉；直接改 PDF 會在下次 build 被覆蓋。同語系雙版的 `<style>` 必須逐字相同（腳本會 diff 並警告），但**diff 只涵蓋 `<style>`——SVG 與文案的落差不會有警告，必須手動同步兩邊** |
 
 ## 工作慣例
 - 每週日晚上更新 `weekly-log/`，週一 NTU Day 直接拿去報告
