@@ -35,6 +35,7 @@ import VolumeSlider from './VolumeSlider';
 import { PauseIcon, PlayIcon, SkipIcon } from './Glyph';
 import { DEMO_EPISODES, Episode } from '../lib/episodes';
 import { cyrb53 } from '../lib/hash';
+import { t, useLang } from '../lib/i18n';
 import { addDaysStr, toDateStr, todayStr } from '../lib/srs';
 import { computeStreak } from '../lib/stats';
 import {
@@ -153,7 +154,7 @@ const EpisodeCard = React.memo(function EpisodeCard({
       onPress={() => onPress(episode)}
       style={({ pressed }) => [styles.cardPress, pressed && styles.pressed]}
       accessibilityRole="button"
-      accessibilityLabel={`播放 ${episode.title}`}
+      accessibilityLabel={t('home.a11y_play_episode', { title: episode.title })}
     >
       {/* sheen 在這麼小的卡上只是雜訊、elevated 會讓一整片清單看起來髒；
           正在播放的那一集用藍框標示——藍是中性 chrome（播放位置），不是綠。 */}
@@ -194,6 +195,11 @@ export default function HomeScreen({
   onGoBrowse,
   practiceBadge,
 }: HomeScreenProps): React.ReactElement {
+  // 訂閱語言。**回傳值刻意不使用**——它存在的唯一理由是讓這個元件在語言切換時
+  // 重繪，好讓底下每一個 `t()` 重新查表。用 useSyncExternalStore 而不是 Context，
+  // 所以切換時只重繪、不重建 state（正在捲動的位置、展開的區塊都會留著）。
+  useLang();
+
   const { height: screenHeight } = useWindowDimensions();
   const compact = screenHeight < COMPACT_HEIGHT;
 
@@ -308,7 +314,7 @@ export default function HomeScreen({
           onPress={onOpenNowPlaying}
           style={({ pressed }) => [styles.heroTop, pressed && styles.pressed]}
           accessibilityRole="button"
-          accessibilityLabel={`${episode.title}，打開播放器`}
+          accessibilityLabel={t('home.a11y_open_player', { title: episode.title })}
         >
           <Artwork episode={episode} size={compact ? 56 : 72} radius={R.md} />
           <View style={styles.heroMeta}>
@@ -348,7 +354,7 @@ export default function HomeScreen({
             onPress={onBack15}
             style={({ pressed }) => [styles.skipBtn, pressed && styles.pressed]}
             accessibilityRole="button"
-            accessibilityLabel="重聽 15 秒"
+            accessibilityLabel={t('home.a11y_back15')}
           >
             <SkipIcon seconds={15} direction="back" size={34} color={C.accent} />
           </Pressable>
@@ -357,7 +363,7 @@ export default function HomeScreen({
             onPress={onTogglePlay}
             style={({ pressed }) => [styles.playBtn, pressed && styles.pressed]}
             accessibilityRole="button"
-            accessibilityLabel={playing ? '暫停' : '播放'}
+            accessibilityLabel={playing ? t('home.a11y_pause') : t('home.a11y_play')}
           >
             {playing ? <PauseIcon size={20} color={C.bg} /> : <PlayIcon size={22} color={C.bg} />}
           </Pressable>
@@ -366,7 +372,7 @@ export default function HomeScreen({
             onPress={onForward30}
             style={({ pressed }) => [styles.skipBtn, pressed && styles.pressed]}
             accessibilityRole="button"
-            accessibilityLabel="快轉 30 秒"
+            accessibilityLabel={t('home.a11y_forward30')}
           >
             <SkipIcon seconds={30} direction="forward" size={28} color={C.dim} />
           </Pressable>
@@ -380,9 +386,9 @@ export default function HomeScreen({
             hitSlop={8}
             style={({ pressed }) => [styles.pill, pressed && styles.pressed]}
             accessibilityRole="button"
-            accessibilityLabel="打開逐字稿"
+            accessibilityLabel={t('home.a11y_open_transcript')}
           >
-            <Text style={styles.pillText}>逐字稿</Text>
+            <Text style={styles.pillText}>{t('home.transcript')}</Text>
           </Pressable>
           <Text style={styles.loadState} numberOfLines={1}>
             {loadState ?? ''}
@@ -392,7 +398,7 @@ export default function HomeScreen({
             hitSlop={8}
             style={({ pressed }) => [styles.pill, pressed && styles.pressed]}
             accessibilityRole="button"
-            accessibilityLabel={`播放速度 ${rate} 倍，點擊切換`}
+            accessibilityLabel={t('home.a11y_rate', { rate })}
           >
             <Text style={styles.pillText}>{rate}x</Text>
           </Pressable>
@@ -406,20 +412,22 @@ export default function HomeScreen({
           style={({ pressed }) => [styles.row2Practice, pressed && styles.pressed]}
           accessibilityRole="button"
           accessibilityLabel={
-            practiceBadge === 0 ? '今天沒有待練的，去聽一集' : `今日練習，${practiceBadge} 張待練`
+            practiceBadge === 0
+              ? t('home.a11y_practice_empty')
+              : t('home.a11y_practice_n', { n: practiceBadge })
           }
         >
           {/* 綠暈：練習就是「學習者動手了」，這塊面板憑語意賺得到綠色。 */}
           <Glass radius={R.lg} bloom="accent" style={styles.tile}>
             {practiceBadge === 0 ? (
               <>
-                <Text style={styles.tileEmptyTitle}>今天沒有待練的</Text>
-                <Text style={styles.tileLabel}>去聽一集</Text>
+                <Text style={styles.tileEmptyTitle}>{t('home.practice_empty_title')}</Text>
+                <Text style={styles.tileLabel}>{t('home.practice_empty_cta')}</Text>
               </>
             ) : (
               <>
                 <Text style={styles.tileValue}>{practiceBadge}</Text>
-                <Text style={styles.tileLabel}>待練</Text>
+                <Text style={styles.tileLabel}>{t('home.pending')}</Text>
               </>
             )}
           </Glass>
@@ -429,7 +437,7 @@ export default function HomeScreen({
             這塊沒有語意可用（它講的是紀律，不是那三個訊號階段），所以不放 bloom。 */}
         <Glass radius={R.lg} style={[styles.tile, styles.row2Streak]}>
           <Text style={styles.tileValue}>{streak}</Text>
-          <Text style={styles.tileLabel}>連續天數</Text>
+          <Text style={styles.tileLabel}>{t('home.streak_days')}</Text>
           <View style={styles.dots}>
             {weekDots.map((done, i) => (
               <View key={i} style={[styles.dot, done ? styles.dotOn : styles.dotOff]} />
@@ -449,17 +457,17 @@ export default function HomeScreen({
         <View style={styles.legend}>
           {/* 圖例的三顆點與環上的三段共用 RAMP：同色相、不同濃度，讀起來才是
               同一件事的三個階段，而不是三種不同的東西。 */}
-          <LegendRow color={RAMP.accentWeak} label="重聽" value={signal.rewinds} />
-          <LegendRow color={RAMP.accentMid} label="確認" value={signal.confirmed} />
-          <LegendRow color={RAMP.accentFull} label="掌握" value={signal.mastered} />
+          <LegendRow color={RAMP.accentWeak} label={t('home.legend_rewinds')} value={signal.rewinds} />
+          <LegendRow color={RAMP.accentMid} label={t('home.legend_confirmed')} value={signal.confirmed} />
+          <LegendRow color={RAMP.accentFull} label={t('home.legend_mastered')} value={signal.mastered} />
         </View>
       </Glass>
 
       {/* ── (e) 難點詞庫 ─────────────────────────────────────────────────── */}
       <Glass radius={R.lg} style={styles.vocab}>
-        <Text style={styles.vocabHeading}>難點詞庫</Text>
+        <Text style={styles.vocabHeading}>{t('home.vocab_heading')}</Text>
         {chips.length === 0 ? (
-          <Text style={styles.vocabEmpty}>圈出聽不懂的字、或把標注的詞加入練習，會出現在這裡</Text>
+          <Text style={styles.vocabEmpty}>{t('home.vocab_empty')}</Text>
         ) : (
           <ScrollView
             horizontal
@@ -473,19 +481,19 @@ export default function HomeScreen({
         )}
       </Glass>
 
-      <Text style={styles.sectionTitle}>探索</Text>
+      <Text style={styles.sectionTitle}>{t('home.browse_title')}</Text>
     </View>
   );
 
   const footer = exhausted ? (
     <Glass radius={R.lg} style={styles.endCard}>
-      <Text style={styles.endText}>訂閱更多節目，這裡就會一直長下去</Text>
+      <Text style={styles.endText}>{t('home.end_text')}</Text>
       <Pressable
         onPress={goBrowse}
         style={({ pressed }) => [styles.endBtn, pressed && styles.pressed]}
         accessibilityRole="button"
       >
-        <Text style={styles.endBtnText}>去探索</Text>
+        <Text style={styles.endBtnText}>{t('home.end_cta')}</Text>
       </Pressable>
     </Glass>
   ) : null;
@@ -533,7 +541,7 @@ function Chip({ capture, onPress }: { capture: Capture; onPress: () => void }) {
       onPress={onPress}
       style={({ pressed }) => pressed && styles.pressed}
       accessibilityRole="button"
-      accessibilityLabel={`練習 ${capture.selection_text}`}
+      accessibilityLabel={t('home.a11y_practice_term', { text: capture.selection_text ?? '' })}
     >
       <Glass radius={R.pill} style={styles.chip}>
         {/* 綠色半透明底＝學習者親手圈出來的那幾個字。從 top:1 開始，把 Glass 的

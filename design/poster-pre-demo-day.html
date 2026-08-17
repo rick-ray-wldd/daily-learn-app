@@ -280,6 +280,31 @@
   .nx-t em { font-style: normal; color: var(--guess); font-family: var(--mono); font-size: 0.82em; }
   .nx-d { font-size: 1.2cqw; line-height: 1.36; color: var(--ink-mid); }
 
+
+  /* ── QR ───────────────────────────────────────────────────── */
+  /* 攤位上唯一希望他做的動作，所以它自己一塊、用 signal 綠框起來。
+     `image-rendering: pixelated` 是硬性的：QR 被平滑化之後模組邊界會糊，
+     手機在斜角或弱光下就掃不到。34mm 寬 ÷ (33+8) 模組 = 每格 0.83mm，
+     高於一臂距離要的 0.6mm 下限（實測過）。 */
+  .qr {
+    margin-top: 1.2cqw;
+    display: flex;
+    gap: 2.2cqw;
+    align-items: center;
+    border: 1.5px solid var(--signal);
+    background: var(--signal-soft);
+    padding: 1.8cqw;
+  }
+  .qr img {
+    width: 8.1cqw; height: 8.1cqw; flex: none;
+    image-rendering: pixelated;
+  }
+  .qr-txt { display: grid; gap: 0.45cqw; }
+  .qr-t { font-size: 1.78cqw; font-weight: 700; line-height: 1.2; }
+  .qr-d { font-size: 1.24cqw; line-height: 1.4; color: var(--ink-mid); }
+  /* 網址印出來，掃不到時可以用唸的——攤位上這件事真的會發生。 */
+  .qr-u { font-family: var(--mono); font-size: 1.02cqw; color: var(--signal); }
+
   /* ── 5. footer ────────────────────────────────────────────── */
 
   .footer {
@@ -386,7 +411,12 @@
             fill="none" stroke="#0B7A46" stroke-width="3.5" marker-end="url(#arrow)"/>
       <circle cx="722" cy="106" r="8" fill="#0B7A46"/>
 
-      <text x="487" y="42" text-anchor="middle"
+      <!-- ⚠️ y 不是隨便給的：弧線在 x=487 的頂點是 y≈32（cubic 在 t=0.5：
+           0.125×74 + 0.75×18 + 0.125×72），字身高約 20，所以原本的 y=42
+           會讓字直接壓在弧線上。移到 68：字頂 48（離弧線 16）、字底約 74
+           （離窗口帶頂緣 86 還有 12）。**不動 viewBox 高度**——英文版的版面
+           只剩 6mm 餘裕，把 SVG 加高會讓它溢出成兩頁。 -->
+      <text x="487" y="68" text-anchor="middle"
             font-family="-apple-system, 'Helvetica Neue', sans-serif"
             font-size="27" font-weight="700" fill="#0B7A46">↺ 15s</text>
 
@@ -394,9 +424,16 @@
             font-family="ui-monospace, 'SF Mono', Menlo, monospace"
             font-size="16" fill="#46514F">他在這裡按了返回鍵</text>
 
+      <!-- 時間軸那條線正好從這行字的中間穿過去（線 y=106，字身 100–116）。
+           不移動文字、也不把線切斷，改用製圖學的標準解法：**與底色同色的描邊光暈**。
+           `paint-order="stroke"` 讓描邊先畫、字後畫，所以線在字周圍自然斷開，
+           而字仍然精準置中在窗口帶上。stroke 用 #D2E7DC＝窗口帶的填色，
+           不是紙色——這行字坐在帶子上，光暈要吃帶子的顏色才看不出來。 -->
       <text x="487" y="112" text-anchor="middle"
             font-family="ui-monospace, 'SF Mono', Menlo, monospace"
             font-size="17" font-weight="600" fill="#0B7A46"
+            paint-order="stroke" stroke="#D2E7DC" stroke-width="5"
+            stroke-linejoin="round"
             letter-spacing="1">CAPTURE-WINDOW</text>
     </svg>
 
@@ -493,7 +530,14 @@
         <div class="row"><span class="mark on">✓</span><span><b>難度帶 1–5</b>：量出來的與猜的，畫得不一樣</span></div>
       </div>
 
-      <!-- QR-BLOCK -->
+      <div class="qr">
+        <img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAlAAAAJQAQAAAABpmWfoAAACkElEQVR42u3dwY5bIQwFULvq//+yu4gyDwyjSlUHsjjZzOhFOQsvroBnICv+1+dXoFAoFAqFQqHid0RETo9eI67c/M2vb3e/UXYUCvXzefWk0CuHMirqK6Ge1KpNrj3ZpewoFOpEXr0zp+fW60kO46s1p0rZUSjU0bzqnxrSqoZn86xQ2VEo1N28elLqWb2K5T9lR6FQd/Jql0HvVatxXljbFSxlR6FQp/IqNznVM6uGGWEtv1F2FAr1w1Tux1V9XjhnmLKjUKh7/Vf78VQOnVdr31W1N4TKjkKhfj6vakilnly56RUd1971M6BQqLPzwWwZtL4j3L0vnHNM2VEo1Mn3g2NPe0yr6jWNuKp1lCo7CoU6t96e03pUxnddpPu9hPYPolCok+OrJ6tyGl3VNAvsSZbKjkKhDo6vsiXWd6czVBuFeT+IQqHOvx/MYX9gtKSK4a1hLdn1/ErZUSjUmfOvqq2m71ao+pxw7iFVdhQKdW6/cz+JIaZsimlElcuOQmVHoVBxdD9OtnlfLJ1Z80q8+SAKhbqzHyenzqq+qv7+NqfnqewoFOrofpwYdgvOSZRL52hOIzF5hUKhTvYz7GaFveO9pjGX9XYUCnXz/PZqvevveyd6Vo3r7vqvUCjUnfFVbkZR+/X49f4JZUehUGf62787pyHad30/zjMaU3YUCnXjfNHxrJhc9t7sd+koOwqFiuP3O1c7K6ZahvW1dutXKBTqxvvBfvLx3+72klcoFOoT7nfu46vnjWFO61fmgygU6vb9zuN+m95FWu7zQqFQH5FX2XYQZrsnNZ3Xh0KhPuh+55o6SXPTIRr6r1Ao1PX7nftaei5jqn7bs7KjUKi40H+lVigUCoVCoVD//PkDgqzwt1v6/WsAAAAASUVORK5CYII=" alt="掃描填寫問卷">
+        <div class="qr-txt">
+          <div class="qr-t">試試看，或告訴我我錯在哪</div>
+          <div class="qr-d">9 題 · 約 90 秒。TestFlight 開放時我寄一次邀請給你，不做電子報。</div>
+          <div class="qr-u">rick-ray-wldd.github.io/daily-learn-app</div>
+        </div>
+      </div>
     </div>
   </section>
 

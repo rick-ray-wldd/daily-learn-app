@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="zh-Hant" data-lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Echo — 你已經告訴過我們，你哪裡沒聽懂</title>
+<link rel="icon" href="data:,">
+<!-- 這一頁上有 CV，裡面有個人聯絡方式。不希望它被搜尋引擎收錄與爬取——
+     訪客是掃 QR 或聽你唸網址進來的，沒有一條路徑需要搜尋。
+     robots.txt 是同一件事的第二道（爬蟲不一定讀 meta）。 -->
+<meta name="robots" content="noindex, nofollow">
+<style>
+  /* ───────────────────────────────────────────────────────────────
+     :root 逐字複製自 design/poster-pre-demo-day-en.html。
+     海報、表單、這一頁必須看起來是同一個東西——訪客先看到海報、
+     再掃進這裡，中間任何一次視覺跳動都會讓他懷疑走錯地方。
+     要改就改海報再複製回來，不要在這裡「順手優化」。
+     ─────────────────────────────────────────────────────────────── */
+  :root {
+    --paper:   #F3F6F4;
+    --panel:   #EAEEEB;
+    --ink:     #14191B;
+    --ink-mid: #46514F;
+    --ink-dim: #77827F;
+    --rule:    #C3CCC8;
+    --signal:  #0B7A46;
+    --signal-soft: #D2E7DC;
+    --guess:   #A96B12;
+    --guess-soft:  #F0E4CC;
+    --track:   #3E5261;
+    --display: -apple-system, BlinkMacSystemFont, "Helvetica Neue", "Segoe UI", sans-serif;
+    --body:    -apple-system, BlinkMacSystemFont, "PingFang TC", "Noto Sans TC",
+               "Microsoft JhengHei", "Helvetica Neue", sans-serif;
+    --mono:    ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  }
+
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; color-scheme: light; }
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--body);
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* 語言：兩份都在 DOM 裡，CSS 藏一份。與 booth-form.html 同一套機制。 */
+  html:not([data-lang="en"]) .en { display: none; }
+  html[data-lang="en"] .zh { display: none; }
+
+  .wrap { max-width: 34rem; margin: 0 auto; padding: 1.5rem 1.25rem 4rem; }
+
+  /* ── 頁首 ─────────────────────────────────────────── */
+  .top { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+  .wordmark { font-family: var(--display); font-size: 1.75rem; font-weight: 800; letter-spacing: -.02em; }
+  .wordmark span { color: var(--signal); }
+
+  /* 語言鈕：兩半都 44px 高——這是整頁第一個可點的東西，不能難按。 */
+  .langsw { display: flex; border: 1px solid var(--rule); border-radius: .5rem; overflow: hidden; }
+  .langsw button {
+    appearance: none; border: 0; background: transparent; cursor: pointer;
+    font: inherit; font-size: .8rem; color: var(--ink-mid);
+    min-height: 44px; padding: 0 .85rem;
+  }
+  .langsw button[aria-pressed="true"] { background: var(--ink); color: var(--paper); font-weight: 600; }
+  .langsw button:focus-visible { outline: 2px solid var(--signal); outline-offset: -2px; }
+
+  h1 {
+    font-family: var(--display);
+    font-size: clamp(1.7rem, 7vw, 2.3rem);
+    line-height: 1.08; font-weight: 800; letter-spacing: -.03em;
+    text-wrap: balance; margin: 1.5rem 0 .75rem;
+  }
+  .lede { font-size: 1.02rem; color: var(--ink-mid); margin: 0 0 1.5rem; }
+  .lede b { color: var(--ink); font-weight: 600; }
+
+  /* ── 主要行動 ─────────────────────────────────────── */
+  .cta {
+    display: block; text-decoration: none;
+    background: var(--signal); color: var(--paper);
+    border-radius: .6rem; padding: 1rem 1.15rem;
+    font-weight: 700; font-size: 1.05rem;
+    min-height: 44px;
+  }
+  .cta small { display: block; font-weight: 400; font-size: .82rem; opacity: .88; margin-top: .2rem; }
+  .cta:focus-visible { outline: 3px solid var(--ink); outline-offset: 2px; }
+
+  h2 {
+    font-family: var(--display); font-size: 1.05rem; font-weight: 700;
+    letter-spacing: .02em; text-transform: uppercase;
+    color: var(--ink-dim);
+    margin: 2.25rem 0 .75rem; padding-bottom: .4rem;
+    border-bottom: 1px solid var(--rule);
+  }
+
+  .links { display: grid; gap: .5rem; }
+  .row {
+    display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+    text-decoration: none; color: var(--ink);
+    background: var(--panel); border: 1px solid var(--rule);
+    border-radius: .5rem; padding: .85rem 1rem; min-height: 44px;
+  }
+  .row:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
+  .row .t { font-weight: 600; }
+  .row .m { font-family: var(--mono); font-size: .72rem; color: var(--ink-dim); white-space: nowrap; }
+
+  .note { font-size: .84rem; color: var(--ink-dim); margin-top: .6rem; }
+
+  footer {
+    margin-top: 2.5rem; padding-top: 1rem; border-top: 2px solid var(--ink);
+    font-family: var(--mono); font-size: .72rem; color: var(--ink-dim); line-height: 1.6;
+  }
+  footer b { color: var(--ink); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="top">
+    <div class="wordmark">Echo<span>.</span></div>
+    <div class="langsw" role="group" aria-label="Language / 語言">
+      <button id="lang-zh" type="button" aria-pressed="true">中文</button>
+      <button id="lang-en" type="button" aria-pressed="false">EN</button>
+    </div>
+  </div>
+
+  <h1>
+    <span class="zh">你已經告訴過我們，<br>你哪裡沒聽懂。</span>
+    <span class="en">You already told us<br>what you didn&rsquo;t understand.</span>
+  </h1>
+
+  <p class="lede">
+    <span class="zh">學語言的人每天按幾十次返回鍵，而<b>沒有任何一個 app 在記錄那一下</b>。
+      Echo 把它接住：不問問題、不打斷聆聽，只是把你重聽的那十五秒留下來，隔天再拿回來給你。</span>
+    <span class="en">Language learners hit rewind dozens of times a day, and <b>no app records
+      that tap</b>. Echo keeps the fifteen seconds you replayed — no questions, no
+      interruption — and hands them back tomorrow.</span>
+  </p>
+
+  <a class="cta" href="./design/booth-form.html">
+    <span class="zh">回答 9 題 · 約 90 秒
+      <small>TestFlight 開放時我會寄一次邀請給你</small></span>
+    <span class="en">Answer 9 questions · about 90 seconds
+      <small>One TestFlight invite when the beta opens</small></span>
+  </a>
+
+  <h2><span class="zh">看得更詳細</span><span class="en">Go deeper</span></h2>
+  <div class="links">
+    <a class="row" href="./design/deck-demo-day.pdf">
+      <span class="t"><span class="zh">簡報 · 中文</span><span class="en">Deck · Chinese</span></span>
+      <span class="m">PDF · 10p</span>
+    </a>
+    <a class="row" href="./design/deck-demo-day-en.pdf">
+      <span class="t"><span class="zh">簡報 · English</span><span class="en">Deck · English</span></span>
+      <span class="m">PDF · 10p</span>
+    </a>
+    <a class="row" href="./design/poster-pre-demo-day.pdf">
+      <span class="t"><span class="zh">海報（A2）</span><span class="en">Poster (A2)</span></span>
+      <span class="m">PDF</span>
+    </a>
+  </div>
+
+  <h2><span class="zh">關於我</span><span class="en">About me</span></h2>
+  <div class="links">
+    <a class="row" href="./design/Ray_Tsai_CV.pdf">
+      <span class="t"><span class="zh">蔡秉叡 Ray Tsai · CV</span><span class="en">Ray Tsai · CV</span></span>
+      <span class="m">PDF</span>
+    </a>
+    <a class="row" href="https://www.linkedin.com/in/ray-tsai-8908bb212">
+      <span class="t">LinkedIn</span>
+      <span class="m">↗</span>
+    </a>
+    <a class="row" href="https://github.com/rick-ray-wldd/daily-learn-app">
+      <span class="t"><span class="zh">原始碼</span><span class="en">Source code</span></span>
+      <span class="m">↗</span>
+    </a>
+    <a class="row" href="./PRIVACY.md">
+      <span class="t"><span class="zh">隱私權政策</span><span class="en">Privacy policy</span></span>
+      <span class="m">↗</span>
+    </a>
+  </div>
+
+  <footer>
+    <span class="zh">現況（2026.08.14 直接查線上資料庫得到，不是估計）<br>
+      <b>captures 15</b> · <b>replay_events 22</b>（其中鎖屏 3）· 真實使用者 <b>1</b><br>
+      創辦人本人，第 5 週。<b>管線通了 ≠ 產品有用</b>，我知道差別。</span>
+    <span class="en">STATUS 2026.08.14, measured — not estimated<br>
+      <b>captures 15</b> · <b>replay_events 22</b> (3 lock-screen) · real users <b>1</b><br>
+      The founder, week 5. <b>A working pipeline ≠ a useful product.</b></span>
+  </footer>
+
+</div>
+
+<script>
+  /* 依瀏覽器語言預選，與 booth-form.html 同一條規則。 */
+  document.documentElement.dataset.lang =
+    (navigator.language || 'en').toLowerCase().startsWith('zh') ? 'zh' : 'en';
+
+  var root = document.documentElement;
+  var zhBtn = document.getElementById('lang-zh');
+  var enBtn = document.getElementById('lang-en');
+  function setLang(l) {
+    root.dataset.lang = l;
+    root.setAttribute('lang', l === 'zh' ? 'zh-Hant' : 'en');
+    zhBtn.setAttribute('aria-pressed', String(l === 'zh'));
+    enBtn.setAttribute('aria-pressed', String(l === 'en'));
+    /* 表單也吃 ?lang=，讓語言選擇跟著人走過去，不用再切一次。 */
+    document.querySelector('.cta').setAttribute('href', './design/booth-form.html?lang=' + l);
+  }
+  zhBtn.addEventListener('click', function () { setLang('zh'); });
+  enBtn.addEventListener('click', function () { setLang('en'); });
+  setLang(root.dataset.lang === 'en' ? 'en' : 'zh');
+</script>
+</body>
+</html>

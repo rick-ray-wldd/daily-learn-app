@@ -1,0 +1,5 @@
+User-agent: *
+Disallow: /
+
+# 這個站是給掃 QR 或聽到網址的人看的，沒有一條路徑需要搜尋引擎。
+# 而 index.html 上有 CV，裡面有個人聯絡方式。
