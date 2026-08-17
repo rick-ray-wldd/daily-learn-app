@@ -95,6 +95,14 @@ const ALPHA_FLOOR = 6;
 const INK_HEX = "000000"; // 正規化後的 mark 顏色。素材原本是 #090909（中性灰黑，無可見色偏）
 const BG_HEX = "FFFFFF"; // 不透明輸出的底色
 
+// iOS 18+ 變體的色票。深色版刻意沿用 app/lib/theme.ts 的中性色而不是純黑白：
+// 純黑底在深色桌布上會變成一個看不見邊界的洞，帶一點藍綠偏移的 #14191B 才有形狀。
+const DARK_BG_HEX = "14191B";  // theme.ts 的 ink
+const DARK_INK_HEX = "F3F6F4"; // theme.ts 的 paper
+// 著色版必須嚴格中性（R=G=B）：系統會用使用者選的色相重上色，任何色偏都會打架。
+const TINT_BG_HEX = "0B0B0B";
+const TINT_INK_HEX = "E8E8E8";
+
 /* ------------------------------------------------------------------ *
  * 2. 產出清單
  * ------------------------------------------------------------------ */
@@ -147,6 +155,31 @@ const TARGETS = [
     // 幾何必須跟前景層一致，否則切換主題圖示時 mark 會跳動。
     // 因此本檔與 foreground 逐位元組相同——這是刻意的，不是漏寫。
     note: "Android 13+ themed icon：單色剪影（系統依 alpha 上色）",
+  },
+  {
+    name: "icon-dark.png",
+    size: 1024,
+    markFrac: 0.78,
+    alpha: false,
+    bg: DARK_BG_HEX,
+    ink: DARK_INK_HEX,
+    // iOS 18+ 的深色變體。**不是把亮版反相**：反相會得到純白底變純黑底，
+    // 在深色桌布上是一塊死黑。這裡改用產品自己的色票——底是 theme.ts 的
+    // ink（#14191B，帶一點藍綠偏移的近黑），mark 是 paper（#F3F6F4）。
+    // 與海報、簡報同一組中性色，所以它看起來是「選過的」而不是「預設的」。
+    note: "iOS 18+ dark variant：深底淺 mark，用產品自己的中性色",
+  },
+  {
+    name: "icon-tinted.png",
+    size: 1024,
+    markFrac: 0.78,
+    alpha: false,
+    bg: TINT_BG_HEX,
+    ink: TINT_INK_HEX,
+    // iOS 18+ 的著色變體。系統會**用使用者選的色相重新上色**，只看亮度，
+    // 所以這張必須是嚴格中性灰——放任何色偏進去都會與使用者選的色打架。
+    // 深底淺 mark：著色模式下亮的部分才會吃到顏色，mark 是主體所以它要亮。
+    note: "iOS 18+ tinted variant：嚴格灰階，深底淺 mark（系統只讀亮度）",
   },
   {
     name: "favicon.png",
@@ -424,6 +457,11 @@ for t in cfg["targets"]:
     if t["bg"]:
         bg = tuple(int(t["bg"][i:i+2], 16) for i in (0, 2, 4))
 
+    # 逐 target 覆寫 ink（iOS 18 的 dark / tinted 變體要反過來：淺 mark 深底）
+    t_ink = ink
+    if t.get("ink"):
+        t_ink = tuple(int(t["ink"][i:i+2], 16) for i in (0, 2, 4))
+
     if t["markFrac"] is None:
         canvas = Image.new("RGB", (S, S), bg)
         canvas.save(t["path"], optimize=True)
@@ -457,7 +495,7 @@ for t in cfg["targets"]:
         mode = "RGBA"
     else:
         canvas = Image.new("RGB", (S, S), bg)
-        canvas.paste(Image.new("RGB", scaled.size, ink), (ox, oy), scaled)
+        canvas.paste(Image.new("RGB", scaled.size, t_ink), (ox, oy), scaled)
         canvas.save(t["path"], optimize=True)
         mode = "RGB"
 
