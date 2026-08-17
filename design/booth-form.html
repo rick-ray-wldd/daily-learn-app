@@ -22,15 +22,26 @@
      ═══════════════════════════════════════════════════════════════════════ -->
 <script>
   /* Where the answers go. Must accept POST and answer CORS preflight (OPTIONS). */
-  const ENDPOINT       = '__FORM_ENDPOINT__';
+  const ENDPOINT       = 'https://lkywohepzbubiijxktai.supabase.co/rest/v1/booth_signups';
 
   /* Rescue path when the POST fails — booth wifi always fails eventually.
      The answers get packed into a mailto: link addressed here. */
-  const FALLBACK_EMAIL = '__FALLBACK_EMAIL__';
+  const FALLBACK_EMAIL = 'allcare.rickray@gmail.com';
 
   /* Privacy page. If left unreplaced, the "what we do with this" link falls back
      to the inline <details id="privacy"> block further down — never a dead link. */
-  const PRIVACY_URL    = '__PRIVACY_URL__';
+  const PRIVACY_URL    = 'https://github.com/rick-ray-wldd/daily-learn-app/blob/main/PRIVACY.md';
+
+  /* Supabase PostgREST 要 apikey / Authorization。這把 key 是 **publishable
+     anon key**：它本來就會被打進 app 的 JS bundle 送到每一台裝置，所以放在這一頁
+     不是新的暴露。真正的保護是 RLS —— booth_signups 只開 INSERT，沒有 SELECT，
+     所以拿到這把 key 的人可以送出一筆問卷，讀不到任何人的答案。
+     `Prefer: return=minimal` 讓 PostgREST 回 201 空 body，省一次往返也不回傳資料。 */
+  const EXTRA_HEADERS  = {
+    apikey: 'sb_publishable_q8iINtSciEAx6j9Ium8_bw_7fNUvqfu',
+    Authorization: 'Bearer sb_publishable_q8iINtSciEAx6j9Ium8_bw_7fNUvqfu',
+    Prefer: 'return=minimal'
+  };
 
   /* application/json triggers a CORS preflight; the endpoint must answer OPTIONS.
      If the backend cannot (Google Apps Script, some no-code form services), switch
@@ -885,7 +896,7 @@
 
     fetch(ENDPOINT, {
       method: 'POST',
-      headers: { 'Content-Type': CONTENT_TYPE },
+      headers: Object.assign({ 'Content-Type': CONTENT_TYPE }, EXTRA_HEADERS),
       body: JSON.stringify(last.payload),
       signal: ctrl ? ctrl.signal : undefined
     })
