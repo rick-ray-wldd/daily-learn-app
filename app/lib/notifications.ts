@@ -56,6 +56,7 @@ import {
   upsertSrsItem,
 } from './store';
 import type { Capture } from './types';
+import { t } from './i18n';
 
 // 給 App.tsx 用的型別，從這裡一併 re-export，省得呼叫端要記住哪個型別住在哪個檔。
 export type { QuizStatus, QuizQuestion, QuizBlockedReason } from './quiz';
@@ -125,7 +126,7 @@ export async function syncDailyReminder(): Promise<void> {
     if (!(await ensurePermissions())) return; // 拒絕 → 靜默略過，練習 badge 仍是主迴圈
     if (Platform.OS === 'android') {
       await Notifications.setNotificationChannelAsync(REMINDER_KIND, {
-        name: '每日練習提醒',
+        name: t('noti.channel_daily'),
         importance: Notifications.AndroidImportance.DEFAULT,
       });
     }
@@ -141,11 +142,11 @@ export async function syncDailyReminder(): Promise<void> {
     const n = getCaptures().filter((c) => c.status === 'pending').length;
     await Notifications.scheduleNotificationAsync({
       content: {
-        title: 'Echo 每日練習',
+        title: t('noti.daily_title'),
         body:
           n > 0
-            ? `你昨天存了 ${n} 個難點，花 8 分鐘清掉`
-            : '今天聽 podcast 了嗎？每次重聽都是進步的訊號',
+            ? t('noti.daily_body_n', { n })
+            : t('noti.daily_body_0'),
         data: { kind: REMINDER_KIND },
       },
       trigger: {
@@ -183,7 +184,7 @@ export async function syncQuizNotifications(queue: Capture[]): Promise<QuizStatu
   if (Platform.OS === 'web') {
     return makeStatus({
       scheduled: 0,
-      summary_zh: 'web 沒有本地通知，略過題目通知。',
+      summary_zh: t('noti.web_skip'),
     });
   }
 
@@ -235,7 +236,7 @@ export async function fireDemoQuizSoon(
   delaySeconds = 10,
 ): Promise<QuizStatus> {
   if (Platform.OS === 'web') {
-    return makeStatus({ scheduled: 0, summary_zh: 'web 沒有本地通知。' });
+    return makeStatus({ scheduled: 0, summary_zh: t('noti.web_none') });
   }
 
   try {
@@ -243,13 +244,13 @@ export async function fireDemoQuizSoon(
       return makeStatus({
         scheduled: 0,
         blocked: 'other',
-        summary_zh: '沒有通知權限，示範題排不出去。',
+        summary_zh: t('noti.no_perm_demo'),
       });
     }
 
     if (Platform.OS === 'android') {
       await Notifications.setNotificationChannelAsync(QUIZ_KIND, {
-        name: '每日題目',
+        name: t('noti.channel_quiz'),
         importance: Notifications.AndroidImportance.DEFAULT,
       });
     }
@@ -263,7 +264,7 @@ export async function fireDemoQuizSoon(
         blocked: built.blocked,
         // 出不了題時要講**為什麼**——示範資料出不了題等於出題器有 bug，
         // 那比沒有通知嚴重得多，不能只顯示「0 題」。
-        summary_zh: `示範題出不來：${built.summary_zh}`,
+        summary_zh: t('noti.demo_fail', { reason: built.summary_zh }),
       });
     }
 
@@ -274,14 +275,14 @@ export async function fireDemoQuizSoon(
     return makeStatus({
       scheduled: 1,
       skipped: built.skipped,
-      summary_zh: `示範題已排：${secs} 秒後鎖上螢幕就會跳出「${q.prompt}」。`,
+      summary_zh: t('noti.demo_ok', { s: secs, prompt: q.prompt }),
     });
   } catch (err) {
     console.warn('[notifications] fireDemoQuizSoon failed:', err);
     return makeStatus({
       scheduled: 0,
       blocked: 'other',
-      summary_zh: `示範題排程失敗：${errText(err)}`,
+      summary_zh: t('noti.demo_error', { msg: errText(err) }),
     });
   }
 }
@@ -297,13 +298,13 @@ async function runQuizSync(queue: Capture[], today: string): Promise<QuizStatus>
       return makeStatus({
         scheduled: 0,
         blocked: 'other',
-        summary_zh: '沒有通知權限，略過題目通知。',
+        summary_zh: t('noti.no_perm'),
       });
     }
 
     if (Platform.OS === 'android') {
       await Notifications.setNotificationChannelAsync(QUIZ_KIND, {
-        name: '每日題目',
+        name: t('noti.channel_quiz'),
         importance: Notifications.AndroidImportance.DEFAULT,
       });
     }
@@ -355,8 +356,8 @@ async function runQuizSync(queue: Capture[], today: string): Promise<QuizStatus>
       // 如實寫失敗原因：儀表上寧可出現一句難看的錯誤，也不要一句好看的謊話。
       summary_zh:
         scheduled > 0
-          ? `排到第 ${scheduled} 題時失敗：${errText(err)}`
-          : `排題目通知時失敗：${errText(err)}。今天沒有題目通知。`,
+          ? t('noti.sched_fail_at', { n: scheduled, msg: errText(err) })
+          : t('noti.sched_fail', { msg: errText(err) }),
     });
   }
 }
@@ -411,7 +412,7 @@ async function scheduleQuestion(
       // 標題本身就是題面：iOS 的 action 按鈕預設收起來，要下拉才看得到。
       // 即使他不展開，光看到那個詞也已經是一次提取練習。
       title: q.prompt,
-      body: '這句話裡它是什麼意思？下拉選一個',
+      body: t('noti.quiz_body'),
       categoryIdentifier: q.category_id, // iOS only
       data: {
         kind: QUIZ_KIND,
@@ -453,7 +454,7 @@ function quizActions(q: QuizQuestion): Notifications.NotificationAction[] {
 
   actions.push({
     identifier: QUIZ_UNKNOWN_ACTION_ID,
-    buttonTitle: '想不起來',
+    buttonTitle: t('noti.quiz_unknown'),
     options: {
       opensAppToForeground: true,
       isDestructive: false,

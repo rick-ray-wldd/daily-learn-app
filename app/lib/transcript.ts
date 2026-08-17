@@ -25,6 +25,7 @@ import { getTranscriptMeta, setTranscriptMeta } from './store';
 import { ensureSession, supabase } from './supabase';
 import { parseSrt, parseVtt } from './transcriptFormats';
 import { TranscriptSegment } from './types';
+import { t } from './i18n';
 
 /** 與 Edge Function 的 MAX_WINDOW_SEC 一致；改一邊就要改另一邊。 */
 const WINDOW_SEC = 600;
@@ -176,14 +177,14 @@ async function fetchWindow(
     start + WINDOW_SEC,
   );
 
-  if (!supabase) return failWindow(episode.id, windowIdx, '未設定 Supabase，無法轉錄');
+  if (!supabase) return failWindow(episode.id, windowIdx, t('tx.no_supabase'));
   if (end <= start) {
-    return failWindow(episode.id, windowIdx, '窗口超出單集長度');
+    return failWindow(episode.id, windowIdx, t('tx.out_of_range'));
   }
 
   try {
     const userId = await ensureSession();
-    if (!userId) return failWindow(episode.id, windowIdx, '尚未建立 session，無法轉錄');
+    if (!userId) return failWindow(episode.id, windowIdx, t('tx.no_session'));
 
     const { data, error } = await supabase.functions.invoke('transcribe', {
       body: {
@@ -196,7 +197,7 @@ async function fetchWindow(
     });
 
     if (error) {
-      return failWindow(episode.id, windowIdx, `轉錄服務失敗：${error.message}`);
+      return failWindow(episode.id, windowIdx, t('tx.service_failed', { msg: error.message }));
     }
 
     const result = data as
@@ -208,7 +209,7 @@ async function fetchWindow(
       return failWindow(
         episode.id,
         windowIdx,
-        result?.status === 'failed' ? result.reason : '轉錄服務回傳非預期結果',
+        result?.status === 'failed' ? result.reason : t('tx.unexpected'),
       );
     }
 
@@ -217,7 +218,7 @@ async function fetchWindow(
     await persist(episode.id, s);
     return { status: 'ready', segments: s.segments };
   } catch (err) {
-    return failWindow(episode.id, windowIdx, `轉錄失敗：${String(err)}`);
+    return failWindow(episode.id, windowIdx, t('tx.failed', { msg: String(err) }));
   }
 }
 

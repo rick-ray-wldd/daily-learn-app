@@ -14,6 +14,7 @@ import Artwork from './Artwork';
 import { PauseIcon, PlayIcon, SkipIcon } from './Glyph';
 import { Episode } from '../lib/episodes';
 import { C, R, SP, TYPE } from '../lib/theme';
+import { t, useLang } from '../lib/i18n';
 
 const BACK_SECONDS = 15;
 
@@ -36,6 +37,9 @@ export default function MiniPlayer({
   onTogglePlay,
   onBack15,
 }: Props) {
+  // 訂閱語言：回傳值不用，作用是讓這個元件在切換語言時重繪，
+  // 好讓底下的 t() 重新查表。
+  useLang();
   const progress = durationSec > 0 ? Math.min(positionSec / durationSec, 1) : 0;
 
   return (
@@ -44,7 +48,7 @@ export default function MiniPlayer({
         onPress={onOpen}
         style={({ pressed }) => [styles.bar, pressed && styles.pressed]}
         accessibilityRole="button"
-        accessibilityLabel={`開啟播放器：${episode.title}`}
+        accessibilityLabel={t('mini.a11y_open', { title: episode.title })}
       >
         <Artwork episode={episode} size={40} radius={R.sm} />
 
@@ -63,7 +67,7 @@ export default function MiniPlayer({
           hitSlop={8}
           style={({ pressed }) => [styles.btn, pressed && styles.pressed]}
           accessibilityRole="button"
-          accessibilityLabel="重聽 15 秒"
+          accessibilityLabel={t('home.a11y_back15')}
         >
           <SkipIcon seconds={BACK_SECONDS} direction="back" size={24} color={C.accent} />
         </Pressable>
@@ -73,7 +77,7 @@ export default function MiniPlayer({
           hitSlop={8}
           style={({ pressed }) => [styles.btn, pressed && styles.pressed]}
           accessibilityRole="button"
-          accessibilityLabel={playing ? '暫停' : '播放'}
+          accessibilityLabel={playing ? t('home.a11y_pause') : t('home.a11y_play')}
         >
           {playing ? (
             <PauseIcon size={17} color={C.text} />

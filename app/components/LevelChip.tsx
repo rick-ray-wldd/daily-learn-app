@@ -8,7 +8,8 @@
 import { StyleSheet, Text, View } from 'react-native';
 
 import { LEVEL, LEVEL_UNKNOWN, R, SP, TYPE } from '../lib/theme';
-import { LEVEL_LABEL_ZH, type LevelEstimate } from '../lib/level';
+import { type LevelEstimate } from '../lib/level';
+import { t, useLang } from '../lib/i18n';
 
 const SEGMENTS = 5;
 
@@ -20,6 +21,9 @@ interface LevelChipProps {
 }
 
 export default function LevelChip({ estimate, compact }: LevelChipProps) {
+  // 訂閱語言：回傳值不用，作用是讓這個元件在切換語言時重繪，
+  // 好讓底下的 t() 重新查表。
+  useLang();
   const tint = estimate ? LEVEL[estimate.level] : LEVEL_UNKNOWN;
   const filled = estimate?.level ?? 0;
   const measured = estimate?.measured ?? false;
@@ -51,7 +55,7 @@ export default function LevelChip({ estimate, compact }: LevelChipProps) {
       </View>
       {!compact && (
         <Text style={[styles.label, { color: tint.ink }]} numberOfLines={1}>
-          {estimate ? `${measured ? '' : '~'}${LEVEL_LABEL_ZH[estimate.level]}` : '未評估'}
+          {estimate ? `${measured ? '' : '~'}${t(`level.${estimate.level}`)}` : t('level.unrated')}
         </Text>
       )}
     </View>

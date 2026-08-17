@@ -13,6 +13,7 @@
  */
 import { ensureSession, supabase } from './supabase';
 import { Diagnosis, DiagnosisType } from './types';
+import { t } from './i18n';
 
 const DIAGNOSIS_TYPES: DiagnosisType[] = [
   'vocab',
@@ -109,12 +110,13 @@ function validateDiagnosis(input: unknown): Diagnosis | null {
   return out;
 }
 
-/** UI labels for the six difficulty types. */
-export const DIAGNOSIS_LABELS_ZH: Record<DiagnosisType, string> = {
-  vocab: '生詞片語',
-  linking: '連音弱讀',
-  speed: '語速',
-  grammar: '文法結構',
-  accent: '口音',
-  culture: '文化背景',
-};
+/**
+ * 六類難點的介面標籤。
+ *
+ * **是函式不是常數**，而且這個差別很要緊：常數在 import 時求值一次，
+ * 介面語言切換之後它仍然是啟動當下那一種——而它印在練習卡與詞卡上，
+ * 使用者會看到一個英文畫面裡混著一個中文分類標籤，而且沒有任何錯誤訊息。
+ */
+export function diagnosisLabel(type: DiagnosisType): string {
+  return t(`diag.${type}`);
+}

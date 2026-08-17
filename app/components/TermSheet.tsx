@@ -6,7 +6,7 @@
  * session —— 聽的當下不打斷是產品底線（Snipd 的教訓）。
  *
  * 這裡顯示的是逐字稿標注，不是 capture 的 diagnosis：兩者共用同一組六類難點與
- * 中文標籤（`DIAGNOSIS_LABELS_ZH`，不另外複製一份），但標注沒有 learning focus。
+ * 中文標籤（`diagnosisLabel()`，不另外複製一份），但標注沒有 learning focus。
  *
  * 這裡唯一的例外是「＋ 加入練習」：它只有一個動作、沒有問題、沒有分支，按完
  * 面板不關、播放位置紋風不動（不 seek、不 pause、不建 replay event）。之所以
@@ -26,9 +26,10 @@ import {
 } from 'react-native';
 
 import { Term } from '../lib/annotate';
-import { DIAGNOSIS_LABELS_ZH } from '../lib/diagnose';
+import { diagnosisLabel } from '../lib/diagnose';
 import { C, GLASS, R, SP, TYPE } from '../lib/theme';
 import { DiagnosisType } from '../lib/types';
+import { t, useLang } from '../lib/i18n';
 
 /**
  * 六類各給一個色相。顏色本身就是重複模式的提示——連續幾天都點到同一個色相，
@@ -78,6 +79,9 @@ export default function TermSheet({
   onSave,
   onClose,
 }: TermSheetProps) {
+  // 訂閱語言：回傳值不用，作用是讓這個元件在切換語言時重繪，
+  // 好讓底下的 t() 重新查表。
+  useLang();
   // 關閉的瞬間 term 就變成 null，但 Modal 還要滑下去 ~300ms。留住最後一個 term，
   // 否則使用者會看著一張突然變空白的紙滑出畫面。
   const lastTerm = useRef<Term | null>(null);
@@ -107,7 +111,7 @@ export default function TermSheet({
           style={styles.backdrop}
           onPress={onClose}
           accessibilityRole="button"
-          accessibilityLabel="關閉解釋，回到播放"
+          accessibilityLabel={t('term.a11y_close')}
         />
 
         <View style={styles.sheet} accessibilityViewIsModal>
@@ -126,7 +130,7 @@ export default function TermSheet({
                 ]}
               >
                 <Text style={[styles.chipText, { color: tint }]}>
-                  {DIAGNOSIS_LABELS_ZH[shown.type]}
+                  {diagnosisLabel(shown.type)}
                 </Text>
               </View>
 
@@ -146,9 +150,9 @@ export default function TermSheet({
               onPress={onClose}
               style={({ pressed }) => [styles.dismiss, pressed && styles.pressed]}
               accessibilityRole="button"
-              accessibilityLabel="知道了，關閉解釋"
+              accessibilityLabel={t('term.a11y_dismiss')}
             >
-              <Text style={styles.dismissText}>知道了</Text>
+              <Text style={styles.dismissText}>{t('term.ok')}</Text>
             </Pressable>
 
             {/* 反查不到句子就整顆不出現：出現但按了沒反應，比沒有這顆更難理解。 */}
@@ -164,10 +168,10 @@ export default function TermSheet({
                 ]}
                 accessibilityRole="button"
                 accessibilityState={{ disabled: flags.saved }}
-                accessibilityLabel={flags.saved ? '已加入練習' : '把這個詞加入練習'}
+                accessibilityLabel={flags.saved ? t('term.added') : t('term.a11y_add')}
               >
                 <Text style={[styles.saveText, flags.saved && styles.saveDoneText]}>
-                  {flags.saved ? '✓ 已加入練習' : '＋ 加入練習'}
+                  {flags.saved ? t('term.added_check') : t('term.add')}
                 </Text>
               </Pressable>
             )}

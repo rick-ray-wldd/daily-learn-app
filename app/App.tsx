@@ -42,6 +42,7 @@ import { isDue, toDateStr, todayStr } from './lib/srs';
 import { shuffledDemoCaptures } from './lib/demoDeck';
 import { buildDeck, buildStartPayload, nextStaleDate } from './lib/liveActivity';
 import { probeEligibility, startActivity } from './lib/liveActivityNative';
+import { getLang, initLang, LANG_LABEL, LANGS, setLang, t, useLang } from './lib/i18n';
 import {
   DAILY_REMINDER_HOUR,
   fireDemoQuizSoon,
@@ -73,10 +74,12 @@ const RATES = [1, 0.85, 0.7] as const;
  *   分頁是目的地——兩者指向同一處完全正常（Apple Podcasts 的資料庫卡片與資料庫
  *   分頁就是這樣）。
  */
+// 存的是 i18n key 不是字面：這個陣列在 import 時就求值一次，塞 t() 進去會把
+// 語言凍在啟動當下那一種，之後切換分頁列不會變。label 留到 render 時才查。
 const TABS = [
-  { key: 'home', label: '首頁' },
-  { key: 'browse', label: '探索' },
-  { key: 'practice', label: '練習' },
+  { key: 'home', labelKey: 'tab.home' },
+  { key: 'browse', labelKey: 'tab.browse' },
+  { key: 'practice', labelKey: 'tab.practice' },
 ] as const;
 
 type TabKey = (typeof TABS)[number]['key'];
@@ -189,7 +192,7 @@ interface AudioBootProbe {
 /** 一個 process 只開機一次，所以是模組層單例而不是 state。 */
 const audioBootProbe: AudioBootProbe = {
   audio_mode_ok: null,
-  lock_screen_fn: '未量測',
+  lock_screen_fn: t('probe.unmeasured'),
   lock_screen_ok: null,
   error: null,
   at_iso: null,
@@ -297,6 +300,11 @@ function quizQueue(buckets: TodayBuckets): Capture[] {
 }
 
 export default function App() {
+  // 訂閱介面語言。放在最外層一次就夠——它一重繪，底下整棵樹跟著重繪，
+  // 所有 t() 重新查表。用 useSyncExternalStore 而不是 Context，所以切換時
+  // **不會重建任何 state**：正在播的那一集、捲動位置、展開的面板都留著。
+  useLang();
+
   const [tab, setTab] = useState<TabKey>('home');
   const [practiceBadge, setPracticeBadge] = useState(0);
   const [episode, setEpisode] = useState<Episode>(DEMO_EPISODES[0]);
@@ -501,6 +509,8 @@ export default function App() {
       setPracticeBadge(buckets.badge);
       void syncQuizNotifications(quizQueue(buckets)).then(setQuizStatus);
     };
+    // 語言偏好與 store 各自獨立：讀失敗也只是退回預設中文，不該擋住 app 啟動。
+    void initLang();
     void initStore().then(() => {
       resyncQuiz();
       void syncDailyReminder(); // app 開啟時重排（冪等，內部已去重）
@@ -872,7 +882,7 @@ export default function App() {
     return events.filter((e) => new Date(e.created_at).toDateString() === today).length;
   }, [events]);
 
-  const loadState = status.isLoaded ? (status.isBuffering ? '緩衝中…' : null) : '載入音檔中…';
+  const loadState = status.isLoaded ? (status.isBuffering ? t('player.buffering') : null) : t('player.loading');
 
   // 緩衝在模組層、React 看不到它變了，所以重繪的依據是 probeVersion 而不是陣列本身。
   const probes = useMemo(() => getRewindProbes(), [probeVersion]);
@@ -893,13 +903,17 @@ export default function App() {
               ]}
             />
             <Text style={styles.syncText}>
-              {isSupabaseConfigured ? '已連線' : '本地模式'}
+              {isSupabaseConfigured ? t('shell.connected') : t('shell.local_mode')}
             </Text>
           </View>
         </View>
 
-        {/* 現在跑的是哪一顆 bundle。OTA 送達與否在畫面上看不出來，只能把它印出來。 */}
-        <UpdateStatus />
+        {/* 語言開關與版本列同一排：兩者都是「關於這個 app 本身」的資訊，
+            而不是內容。放這裡也讓它在每個分頁都按得到，不只首頁。 */}
+        <View style={styles.chromeRow}>
+          <LanguageSwitch />
+          <UpdateStatus />
+        </View>
 
         {/* 剛剛在通知上按的那一題。綠色只出現在這裡——那是**他**答的。 */}
         <QuizFeedback outcome={quizFeedback} />
@@ -983,7 +997,7 @@ export default function App() {
       )}
 
       <View style={styles.tabBar}>
-        {TABS.map(({ key, label }) => {
+        {TABS.map(({ key, labelKey }) => {
           const active = tab === key;
           return (
             <Pressable
@@ -993,7 +1007,7 @@ export default function App() {
               accessibilityRole="button"
               accessibilityState={{ selected: active }}
             >
-              <Text style={[styles.tabText, active && styles.tabTextActive]}>{label}</Text>
+              <Text style={[styles.tabText, active && styles.tabTextActive]}>{t(labelKey)}</Text>
               {key === 'practice' && practiceBadge > 0 && (
                 <View style={styles.tabBadge}>
                   <Text style={styles.tabBadgeText}>{practiceBadge}</Text>
@@ -1084,20 +1098,20 @@ function clockTime(atMs: number): string {
 function verdictText(p: RewindProbe): string {
   switch (p.verdict) {
     case 'logged':
-      return '已記錄';
+      return t('probe.logged');
     case 'settle-ms':
-      return `閘②時間窗 ${Math.round(p.gate2_margin_ms)}ms`;
+      return t('probe.gate2', { ms: Math.round(p.gate2_margin_ms) });
     case 'min-sec':
-      return `閘①<${EXTERNAL_REWIND_MIN_SEC}s`;
+      return t('probe.gate1', { s: EXTERNAL_REWIND_MIN_SEC });
     case 'commanded':
-      return `閘③ |Δ|=${(p.gate3_dist ?? 0).toFixed(1)}`;
+      return t('probe.gate3', { d: (p.gate3_dist ?? 0).toFixed(1) });
   }
 }
 
 function probeLine(p: RewindProbe): string {
   const where = APP_STATE_SHORT[p.app_state] ?? p.app_state;
   // 暫停時的往回跳很不尋常（多半是換集或載入），標出來；播放中是常態，不加噪音。
-  const paused = p.playing ? '' : ' 暫停';
+  const paused = p.playing ? '' : t('probe.paused');
   return `${clockTime(p.at_ms)}  −${p.delta.toFixed(1)}s  ${verdictText(p)}  ${where} ${p.rate}×${paused}`;
 }
 
@@ -1122,11 +1136,11 @@ async function startDemoLiveActivity(): Promise<string> {
   const eligible = await probeEligibility();
   if (!eligible.ok) {
     const zh: Record<string, string> = {
-      'not-ios': '只有 iOS 有 Live Activity。',
-      'ios-too-old': 'Live Activity 需要 iOS 17 以上。',
-      'native-module-missing': '這顆 binary 沒有鎖屏卡模組——要重新 build 並安裝。',
-      'activities-disabled': '系統設定裡的「即時動態」是關的：設定 → Echo → 打開。',
-      'empty-deck': '今天沒有題目。',
+      'not-ios': t('la.not_ios'),
+      'ios-too-old': t('la.ios_too_old'),
+      'native-module-missing': t('la.module_missing'),
+      'activities-disabled': t('la.disabled'),
+      'empty-deck': t('la.empty_deck'),
     };
     return zh[eligible.reason] ?? eligible.reason;
   }
@@ -1136,7 +1150,7 @@ async function startDemoLiveActivity(): Promise<string> {
     today: todayStr(),
   });
   if (!deck) {
-    return `示範牌組建不起來（跳過 ${skipped.length} 張）。`;
+    return t('la.deck_fail', { n: skipped.length });
   }
 
   const payload = buildStartPayload({
@@ -1145,8 +1159,42 @@ async function startDemoLiveActivity(): Promise<string> {
   });
   const result = await startActivity(payload);
   return result.ok
-    ? `鎖屏卡已啟動（${deck.cards.length} 題）。鎖上螢幕看看。`
-    : (result.error_zh ?? '起卡失敗。');
+    ? t('la.started', { n: deck.cards.length })
+    : (result.error_zh ?? t('la.start_failed'));
+}
+
+/**
+ * 介面語言開關。
+ *
+ * 分段控制而不是下拉選單：只有兩個選項，下拉要兩次點擊才換得掉，而且會蓋住畫面。
+ * 兩個標籤都用**該語言自己的寫法**（繁體中文 / English）——把 "English" 翻成
+ * 「英文」給一個看不懂中文的人看，正好是這個開關要解決的問題。
+ *
+ * 沒有 useLang()：它自己就是觸發重繪的那一個，而 App 已經訂閱了，
+ * 按下去整棵樹會重繪、這裡的 aria/樣式跟著更新。
+ */
+function LanguageSwitch() {
+  const lang = getLang();
+  return (
+    <View style={styles.langSwitch} accessibilityRole="radiogroup">
+      {LANGS.map((l) => {
+        const on = l === lang;
+        return (
+          <Pressable
+            key={l}
+            onPress={() => setLang(l)}
+            hitSlop={6}
+            style={[styles.langBtn, on && styles.langBtnOn]}
+            accessibilityRole="radio"
+            accessibilityState={{ selected: on }}
+            accessibilityLabel={t('lang.switch_a11y')}
+          >
+            <Text style={[styles.langText, on && styles.langTextOn]}>{LANG_LABEL[l]}</Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
 }
 
 function DevProbes({
@@ -1176,24 +1224,28 @@ function DevProbes({
     <View>
       <Pressable onPress={() => setOpen((v) => !v)} hitSlop={8} style={styles.probeToggleRow}>
         <Text style={[styles.probeToggle, bootBad && styles.probeToggleWarn]}>
-          {`倒帶 ${probes.length} 筆 · 題目 ${quiz?.scheduled ?? 0}`}
+          {t('probe.toggle', { n: probes.length, q: quiz?.scheduled ?? 0 })}
         </Text>
       </Pressable>
 
       {open && (
         <View style={styles.probeCard}>
           <Text style={bootBad ? styles.probeWarn : styles.probeLine}>
-            {`鎖屏 API ${boot.lock_screen_fn} · audioMode ${flag(boot.audio_mode_ok)} · setActive ${flag(boot.lock_screen_ok)}`}
+            {t('probe.boot', {
+              fn: boot.lock_screen_fn,
+              a: flag(boot.audio_mode_ok),
+              s: flag(boot.lock_screen_ok),
+            })}
           </Text>
           {boot.error !== null && <Text style={styles.probeWarn}>{boot.error}</Text>}
 
           {/* 「今天為什麼沒有題目」。今天的正確答案就是「沒有 gloss_zh 所以不出題」——
               沒有這一行，使用者會以為功能壞了。 */}
-          <Text style={styles.probeLine}>{quiz?.summary_zh ?? '尚未檢查'}</Text>
+          <Text style={styles.probeLine}>{quiz?.summary_zh ?? t('probe.not_checked')}</Text>
 
           {probes.length === 0 ? (
             <Text style={styles.probeLine}>
-              還沒偵測到任何位置回跳（連 0.1 秒的抖動都會記）
+              {t('probe.no_rewind')}
             </Text>
           ) : (
             probes.slice(0, PROBE_ROWS).map((p, i) => (
@@ -1211,15 +1263,15 @@ function DevProbes({
               它排的是一則額外通知，不會取消今天的真題（下一次 sync 會一併清掉它）。 */}
           <Pressable onPress={onDemoQuiz} style={styles.probeBtn} hitSlop={6}>
             <Text style={styles.probeBtnText}>
-              {`示範題 · ${DEMO_QUIZ_DELAY_SEC} 秒後響（按完請鎖螢幕）`}
+              {t('probe.demo_quiz', { n: DEMO_QUIZ_DELAY_SEC })}
             </Text>
           </Pressable>
           <Pressable onPress={onDemoLiveActivity} style={styles.probeBtn} hitSlop={6}>
-            <Text style={styles.probeBtnText}>示範鎖屏卡（需要新 build）</Text>
+            <Text style={styles.probeBtnText}>{t('probe.demo_la')}</Text>
           </Pressable>
           {liveActivity !== null && <Text style={styles.probeLine}>{liveActivity}</Text>}
           <Text style={styles.probeLine}>
-            示範題用預設單字，不寫進任何統計，答完也不會推進 SRS。
+            {t('probe.demo_note')}
           </Text>
         </View>
       )}
@@ -1241,7 +1293,9 @@ function quizFeedbackText(o: QuizOutcome): { text: string; color: string } | nul
   // 綠＝學習者動手了。**全 app 只有這一行的綠色是這個意思**，儀表區其餘一律 dim。
   if (o.action === 'answer' && o.correct) {
     return {
-      text: o.correct_label_zh ? `答對了 · ${o.correct_label_zh}` : '答對了',
+      text: o.correct_label_zh
+        ? t('quiz.correct_with', { label: o.correct_label_zh })
+        : t('quiz.correct'),
       color: C.accent,
     };
   }
@@ -1249,35 +1303,35 @@ function quizFeedbackText(o: QuizOutcome): { text: string; color: string } | nul
   // 「今天會再出現一次」是對 SRS 的承諾，**只有真的寫回去了才敢講**。寫不回去是
   // 真的會發生的，而且不只一種原因——所以尾巴那句話要看 `srs_skip` 講對是哪一種，
   // 不能一律說「這張卡不在今天的佇列裡」（對一張 pending 的卡那就是句謊話）。
-  const tail = o.srs_written ? '今天會再出現一次' : skipTailZh(o.srs_skip);
+  const tail = o.srs_written ? t('quiz.will_repeat') : skipTailZh(o.srs_skip);
 
   if (o.action === 'unknown') {
     return o.srs_written
-      ? { text: `記下來了 · ${tail}`, color: C.dim }
-      : { text: `想不起來 · ${tail}`, color: C.highlightInk };
+      ? { text: t('quiz.noted', { tail }), color: C.dim }
+      : { text: t('quiz.cant_recall', { tail }), color: C.highlightInk };
   }
   const label = o.correct_label_zh ?? '—';
   // 琥珀＝app 在講自己的判斷（正解是我們給的）。
-  return { text: `正解是 ${label} · ${tail}`, color: C.highlightInk };
+  return { text: t('quiz.answer_was', { label, tail }), color: C.highlightInk };
 }
 
 /** 沒推進 SRS 時，尾巴那句話。**每一句都要是當下真的成立的事實。** */
 function skipTailZh(skip: QuizOutcome['srs_skip']): string {
   switch (skip) {
     case 'stale-deck':
-      return '這是昨天的題目，沒有動今天的排程';
+      return t('quiz.skip_stale');
     case 'card-missing':
-      return '這張卡不在這台裝置上';
+      return t('quiz.skip_missing');
     // pending 的卡沒有推進 SRS，但它**確實**每天都在正式佇列裡——所以這句話講的是
     // 「去練習頁」，不是「今天會再出現一次」（後者是對 SRS 的承諾，這裡沒有寫）。
     case 'card-unconfirmed':
-      return '這張卡還沒確認，練習頁裡有它';
+      return t('quiz.skip_unconfirmed');
     case 'card-dismissed':
-      return '你已經把這張卡標成分心，不再排它';
+      return t('quiz.skip_dismissed');
     case 'write-failed':
-      return '這次沒記錄成功';
+      return t('quiz.skip_failed');
     default:
-      return '沒有記錄這一筆';
+      return t('quiz.skip_none');
   }
 }
 
@@ -1299,6 +1353,22 @@ const styles = StyleSheet.create({
 
   // 讀數區。整組照抄 UpdateStatus 的視覺規格（收合一行、caption、C.faint；
   // 展開是 surface + R.md + border 的卡片），兩塊讀數並排時才不會像兩個系統。
+  /* 語言開關與版本列同一排。開關靠左、版本靠右——版本是唯讀資訊，
+     可點的東西放在拇指比較容易到的那一側。 */
+  chromeRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  langSwitch: {
+    flexDirection: 'row',
+    borderWidth: 1,
+    borderColor: C.border,
+    borderRadius: R.pill,
+    overflow: 'hidden',
+  },
+  /* 32px 高：它是 chrome 不是主要動作，但仍要按得到。 */
+  langBtn: { paddingHorizontal: SP(2.5), height: 32, justifyContent: 'center' },
+  langBtnOn: { backgroundColor: C.surfaceAlt },
+  langText: { ...TYPE.caption, color: C.faint, fontWeight: '400' },
+  langTextOn: { color: C.text, fontWeight: '600' },
+
   probeToggleRow: { alignSelf: 'flex-end', marginTop: SP(1) },
   probeToggle: { ...TYPE.caption, color: C.faint, fontWeight: '400' },
   probeToggleWarn: { color: C.highlightInk },

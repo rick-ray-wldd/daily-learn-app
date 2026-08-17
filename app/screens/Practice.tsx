@@ -48,7 +48,7 @@ import {
   upsertSrsItem,
 } from '../lib/store';
 import {
-  DIAGNOSIS_LABELS_ZH,
+  diagnosisLabel,
   diagnoseCapture,
   isDiagnosisConfigured,
 } from '../lib/diagnose';
@@ -70,6 +70,7 @@ import {
 } from '../lib/srs';
 import { computeStreak, computeWeaknessStats } from '../lib/stats';
 import { syncDailyReminder } from '../lib/notifications';
+import { t, useLang } from '../lib/i18n';
 import {
   checkMirrorAssets,
   deriveMirrorPaths,
@@ -219,11 +220,12 @@ const STRENGTH_RANK: Record<CaptureStrength, number> = {
  * 給它半顆星等於宣稱「這裡有一個很弱的理解斷點」——那是一句假話。它的來歷是
  * 「他自己說想學」，所以文案講的是那個動作。
  */
+/** 存 i18n key 不存字面：模組層級常數塞 t() 會把語言凍在啟動當下。 */
 const STRENGTH_LABEL: Record<CaptureStrength, string> = {
-  selected: '✍ 親手圈出',
-  strong: '★★★ 強訊號',
-  weak: '★ 弱訊號',
-  saved: '＋ 你標記想學',
+  selected: 'pr.badge_selected',
+  strong: 'pr.badge_strong',
+  weak: 'pr.badge_weak',
+  saved: 'pr.badge_saved',
 };
 
 /**
@@ -232,8 +234,8 @@ const STRENGTH_LABEL: Record<CaptureStrength, string> = {
  * 卡上這行字與下方的「你說這裡切不出有幾個字」會當場互相打臉。
  */
 function strengthBadge(capture: Capture): string {
-  if (capture.selection_kind === 'segmentation') return '✍ 你指了這一句';
-  return STRENGTH_LABEL[capture.strength];
+  if (capture.selection_kind === 'segmentation') return t('pr.badge_segmentation');
+  return t(STRENGTH_LABEL[capture.strength]);
 }
 
 /**
@@ -309,16 +311,16 @@ function signalOrigin(capture: Capture): string {
       // 上宣稱一個他剛剛才明說自己做不到的動作——而且下面幾行就印著他真正說的
       // 那句話（「你說這裡切不出有幾個字」），一張卡自己打自己。
       return capture.selection_kind === 'segmentation'
-        ? '你在這裡重聽之後，指著這一句說「我聽不出這裡有幾個字」'
-        : '你在這裡重聽之後，親手圈出了聽不懂的字';
+        ? t('pr.why_segmentation')
+        : t('pr.why_selected');
     case 'strong':
-      return '你在這裡重聽了 2 次以上，或重聽後放慢／打開了逐字稿';
+      return t('pr.why_strong');
     case 'weak':
-      return '你在這裡重聽了 1 次';
+      return t('pr.why_weak');
     case 'saved':
       // 明講「沒有重聽紀錄」，因為這張卡與其他三種的來歷是質的不同，
       // 而含糊其辭會讓它讀起來像一次比較弱的重聽。
-      return '你在逐字稿裡點了這個詞，說想學它——這裡沒有重聽紀錄';
+      return t('pr.why_saved');
     default: {
       // 窮盡檢查。原本的 `default:` 是全 app 唯一會產出**假陳述**的洞：新增一級
       // 就靜靜掉進「你在這裡重聽了 1 次」，在卡片上印一次從沒發生的倒帶。
@@ -453,7 +455,28 @@ function restorePlaybackMode(): Promise<void> {
   });
 }
 
+/**
+ * 一句話裡有一個被強調的數字，而中英語序不同：
+ *   中「你的難點 42% 是連音」 / 英「42% of your gaps are connected speech」
+ * 拆成前綴＋數字＋後綴在英文會壞掉。所以改成：先讓 t() 把整句翻好、數字位置
+ * 留一個哨符，再依哨符切開——語序由譯文自己決定，程式碼不必知道。
+ */
+const NUM_SLOT = '\u0000';
+function tNum(key: string, vars: Record<string, string | number>, numKey: string) {
+  const [before, after = ''] = t(key, { ...vars, [numKey]: NUM_SLOT }).split(NUM_SLOT);
+  return (
+    <>
+      {before}
+      <Text style={styles.statNum}>{vars[numKey]}</Text>
+      {after}
+    </>
+  );
+}
+
 export default function PracticeScreen() {
+  // 訂閱語言：切換時重繪，好讓 t() 重新查表。
+  useLang();
+
   const [queue, setQueue] = useState<QueueItem[] | null>(null);
   const [index, setIndex] = useState(0);
   const [step, setStep] = useState<'confirm' | 'practice'>('confirm');
@@ -777,7 +800,7 @@ export default function PracticeScreen() {
     try {
       const perm = await requestRecordingPermissionsAsync();
       if (!perm.granted) {
-        setRecordError('需要麥克風權限才能跟讀，請到系統設定開啟。');
+        setRecordError(t('pr.mic_denied'));
         return;
       }
       setRecordError(null);
@@ -792,7 +815,7 @@ export default function PracticeScreen() {
       setRecordingUri(null);
     } catch (err) {
       console.warn('[practice] startRecording failed:', err);
-      setRecordError('錄音啟動失敗，再試一次。');
+      setRecordError(t('pr.rec_failed'));
       void restorePlaybackMode();
     }
   };
@@ -979,19 +1002,19 @@ export default function PracticeScreen() {
       // 綠暈：搶先練整塊講的都是「學習者現在就要動手」。
       <Glass radius={R.lg} bloom="accent" style={styles.freshBox}>
         <Pressable style={styles.freshHeader} onPress={() => setFreshExpanded((v) => !v)}>
-          <Text style={styles.freshTitle}>⚡ 搶先練（{fresh.length}）</Text>
+          <Text style={styles.freshTitle}>{t('pr.fresh_title', { n: fresh.length })}</Text>
           <Text style={styles.freshChevron}>{freshExpanded ? '▾' : '▸'}</Text>
         </Pressable>
         {freshExpanded && (
           <View style={styles.freshBody}>
             <Text style={styles.freshHint}>
-              這些是今天剛抓到的難點。正式節奏是明天早上練（隔夜複習效果更好）；等不及也可以現在清。
+              {t('pr.fresh_note')}
             </Text>
             <Pressable
               onPress={startFresh}
               style={({ pressed }) => [styles.primaryBtn, pressed && styles.pressed]}
             >
-              <Text style={styles.primaryBtnText}>開始搶先練 {fresh.length} 張</Text>
+              <Text style={styles.primaryBtnText}>{t('pr.fresh_start', { n: fresh.length })}</Text>
             </Pressable>
           </View>
         )}
@@ -1005,25 +1028,26 @@ export default function PracticeScreen() {
         <Text style={styles.statLine}>
           {weakness.topType ? (
             <>
-              你的難點 <Text style={styles.statNum}>{weakness.topType.pct}%</Text> 是
-              {DIAGNOSIS_LABELS_ZH[weakness.topType.type]}
+              {tNum('pr.top_type', { pct: `${weakness.topType.pct}%` }, 'pct')}{' '}
+              {diagnosisLabel(weakness.topType.type)}
             </>
           ) : (
-            '累積更多診斷後，這裡會顯示你的難點分佈'
+            t('pr.no_stats')
           )}
         </Text>
         <Text style={styles.statLine}>
-          累計捕捉 <Text style={styles.statNum}>{weakness.totalCaptures}</Text> 個難點
+          {tNum('pr.total_captures', { n: weakness.totalCaptures }, 'n')}
         </Text>
         {rewindWeakness.confirmRate !== null && (
           <Text style={styles.statLine}>
-            倒帶確認率{' '}
-            <Text style={styles.statNum}>
-              {Math.round(rewindWeakness.confirmRate * 100)}%
-            </Text>
+            {tNum(
+              'pr.confirm_rate_full',
+              { pct: `${Math.round(rewindWeakness.confirmRate * 100)}%` },
+              'pct',
+            )}
             {/* 括號裡要逐一點名排除了誰：這行字是這個數字唯一的定義，只寫
                 「框選不計入」而漏掉標記想學，讀的人會以為分母是全部的 capture。 */}
-            （滑掉的是誤報；框選與標記想學不計入）
+            {t('pr.confirm_note')}
           </Text>
         )}
       </Glass>
@@ -1033,7 +1057,7 @@ export default function PracticeScreen() {
     return (
       <View style={styles.centered}>
         <ActivityIndicator color={C.accent} />
-        <Text style={styles.dimText}>載入練習佇列…</Text>
+        <Text style={styles.dimText}>{t('pr.loading_queue')}</Text>
       </View>
     );
   }
@@ -1045,14 +1069,14 @@ export default function PracticeScreen() {
         {/* 搶先練還有東西時不能說「沒有待練項目」：首頁徽章正把那幾張算成待練
             （見上方佇列建構的 ⚠️），兩句話會當場打架。 */}
         <Text style={styles.title}>
-          {fresh.length > 0 ? '今天的正式練習已清空' : '目前沒有待練項目'}
+          {fresh.length > 0 ? t('pr.empty_cleared') : t('pr.empty')}
         </Text>
-        {streak > 0 && <Text style={styles.dimText}>🔥 連續練習 {streak} 天</Text>}
+        {streak > 0 && <Text style={styles.dimText}>{t('pr.streak', { n: streak })}</Text>}
         {renderStatsCard()}
         {renderFreshBlock()}
         <Text style={styles.dimText}>
-          去「播放器」聽 podcast，按 ↺15 —— 每一次重聽都會被接住，
-          {'\n'}明天早上回來清掉它們。
+          {t('pr.empty_hint')}
+          {'\n'}{t('pr.empty_hint2')}
         </Text>
       </ScrollView>
     );
@@ -1068,33 +1092,38 @@ export default function PracticeScreen() {
     return (
       <ScrollView style={styles.root} contentContainerStyle={styles.centeredScroll}>
         <Text style={styles.bigEmoji}>✅</Text>
-        <Text style={styles.title}>今日練習完成</Text>
+        <Text style={styles.title}>{t('pr.done_title')}</Text>
         <Glass radius={R.lg} style={styles.statsBox}>
           {/* 括號裡三格分開列：前兩格是倒帶訊號的兩級，「標記想學」不是訊號，
               併進弱訊號會讓這行字宣稱一批沒發生過的倒帶。沒有就不列——0 那一格
               對他沒有意義，只會讓這行變長。 */}
           <Text style={styles.statLine}>
-            練了{' '}
-            <Text style={styles.statNum}>
-              {practicedStrong + practicedWeak + practicedSaved}
-            </Text>{' '}
-            句（強訊號 {practicedStrong}・弱訊號 {practicedWeak}
-            {practicedSaved > 0 ? `・標記想學 ${practicedSaved}` : ''}）
+            {tNum(
+              'pr.done_practiced',
+              {
+                n: practicedStrong + practicedWeak + practicedSaved,
+                strong: practicedStrong,
+                weak: practicedWeak,
+                saved:
+                  practicedSaved > 0 ? t('pr.done_saved_part', { n: practicedSaved }) : '',
+              },
+              'n',
+            )}
           </Text>
           <Text style={styles.statLine}>
-            滑掉分心誤報 <Text style={styles.statNum}>{dismissed}</Text> 個
+            {tNum('pr.done_dismissed', { n: dismissed }, 'n')}
           </Text>
           <Text style={styles.statLine}>
-            明日到期複習 <Text style={styles.statNum}>{dueTomorrow}</Text> 張
+            {tNum('pr.done_due_tomorrow', { n: dueTomorrow }, 'n')}
           </Text>
-          <Text style={styles.statLine}>本次耗時約 {sessionMin} 分鐘</Text>
+          <Text style={styles.statLine}>{t('pr.done_minutes', { n: sessionMin })}</Text>
           <Text style={styles.statLine}>
-            連續練習 <Text style={styles.statNum}>{streak}</Text> 天
+            {tNum('pr.done_streak', { n: streak }, 'n')}
           </Text>
         </Glass>
         {renderStatsCard()}
         {renderFreshBlock()}
-        <Text style={styles.dimText}>繼續聽，明天見。</Text>
+        <Text style={styles.dimText}>{t('pr.done_bye')}</Text>
       </ScrollView>
     );
   }
@@ -1122,17 +1151,17 @@ export default function PracticeScreen() {
       {/* Card header：分段進度條 + 徽章 */}
       <View style={styles.cardHeader}>
         <Text style={styles.progress}>
-          第 {Math.min(index + 1, queue.length)} / {queue.length} 張
+          {t('pr.card_of', { i: Math.min(index + 1, queue.length), total: queue.length })}
         </Text>
         <View style={styles.badges}>
           {streak > 0 && (
             <View style={[styles.chip, styles.chipNeutral]}>
-              <Text style={styles.chipTextDim}>🔥 {streak} 天</Text>
+              <Text style={styles.chipTextDim}>{t('pr.chip_streak', { n: streak })}</Text>
             </View>
           )}
           {current.mode === 'review' && (
             <View style={[styles.chip, styles.chipNeutral]}>
-              <Text style={styles.chipTextReview}>複習</Text>
+              <Text style={styles.chipTextReview}>{t('pr.chip_review')}</Text>
             </View>
           )}
           <View
@@ -1158,7 +1187,7 @@ export default function PracticeScreen() {
       <SessionProgress done={Math.min(index, queue.length)} total={queue.length} />
 
       <Text style={styles.episodeTitle} numberOfLines={2}>
-        {episode ? episode.title : '（未知單集）'}
+        {episode ? episode.title : t('pr.unknown_episode')}
       </Text>
 
       {/**
@@ -1185,7 +1214,7 @@ export default function PracticeScreen() {
         />
 
         <View style={styles.sentenceHead}>
-          <Text style={styles.sectionTitle}>這一句</Text>
+          <Text style={styles.sectionTitle}>{t('pr.this_sentence')}</Text>
           <Text style={styles.windowText}>
             {formatTime(liveCapture.window_start)} – {formatTime(liveCapture.window_end)}
           </Text>
@@ -1195,16 +1224,16 @@ export default function PracticeScreen() {
           <View style={styles.rowCenter}>
             <ActivityIndicator color={C.accent} size="small" />
             <Text style={styles.dimLine}>
-              {'  '}轉錄中…（每集只轉一次，第一次要下載音檔）
+              {'  '}{t('pr.transcribing')}
             </Text>
           </View>
         )}
         {transcript.phase === 'failed' && (
-          <Text style={styles.dimLine}>轉錄失敗：{transcript.reason}</Text>
+          <Text style={styles.dimLine}>{t('pr.tx_failed', { reason: transcript.reason })}</Text>
         )}
         {transcript.phase === 'none' && (
           <Text style={styles.dimLine}>
-            此集還沒有逐字稿（設定 OpenAI key 後自動補）——先用耳朵練，下面的重聽鍵一樣可以按。
+            {t('pr.no_transcript')}
           </Text>
         )}
 
@@ -1221,7 +1250,7 @@ export default function PracticeScreen() {
             )}
 
             {focus === '' ? (
-              <Text style={styles.dimLine}>（此窗口沒有對到句子）</Text>
+              <Text style={styles.dimLine}>{t('pr.no_match')}</Text>
             ) : reveal === 'full' ? (
               <Text style={styles.focusText}>{focus}</Text>
             ) : (
@@ -1247,10 +1276,10 @@ export default function PracticeScreen() {
           <View style={styles.selectionWrap}>
             <Text style={styles.selectionLabel}>
               {liveCapture.selection_kind === 'segmentation'
-                ? '你說這裡切不出有幾個字'
+                ? t('pr.you_said_seg')
                 : liveCapture.strength === 'saved'
-                  ? '你標記想學'
-                  : '你圈的字'}
+                  ? t('pr.you_saved')
+                  : t('pr.you_selected')}
             </Text>
             {liveCapture.selection_kind !== 'segmentation' && (
               <Text style={styles.selectionText}>{liveCapture.selection_text}</Text>
@@ -1276,12 +1305,12 @@ export default function PracticeScreen() {
             accessibilityRole="button"
             accessibilityLabel={
               isPlaying
-                ? '停止重聽'
+                ? t('pr.stop_replay')
                 : mirrorLadder
                   ? // 階梯的最後一級就是驗收，所以問句寫在這顆鍵上——既有的評分列
                     // 已經是三選一的量尺，再放一個問句面板就是兩把尺背靠背。
-                    '原音重聽這一句 — 這次聽得出來嗎'
-                  : '原速重聽這一句'
+                    t('pr.replay_check')
+                  : t('pr.replay_normal')
             }
             onPress={isPlaying ? stopPlayback : () => void playSegment(1)}
             style={({ pressed }) => [styles.playCircle, pressed && styles.pressed]}
@@ -1296,39 +1325,39 @@ export default function PracticeScreen() {
             <>
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel="分塊重聽：塊內原速、邊界停頓"
+                accessibilityLabel={t('pr.a11y_chunked')}
                 onPress={() => void playMirror(mirror.chunkedUrl)}
                 style={({ pressed }) => [styles.slowPill, pressed && styles.pressed]}
               >
                 <PlayIcon size={11} color={C.text} />
-                <Text style={styles.slowText}>① 分塊</Text>
+                <Text style={styles.slowText}>{t('pr.chunked')}</Text>
               </Pressable>
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel="原生慢速重聽"
+                accessibilityLabel={t('pr.a11y_slow_native')}
                 onPress={() => void playMirror(mirror.slowUrl)}
                 style={({ pressed }) => [styles.slowPill, pressed && styles.pressed]}
               >
                 <PlayIcon size={11} color={C.text} />
-                <Text style={styles.slowText}>② 慢速</Text>
+                <Text style={styles.slowText}>{t('pr.slow_native')}</Text>
               </Pressable>
             </>
           ) : (
             // 沒有 Mirror 素材時 0.7× 是唯一的慢速，這條路徑不能刪。
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel="慢速重聽這一句"
+              accessibilityLabel={t('pr.a11y_slow')}
               onPress={() => void playSegment(0.7)}
               style={({ pressed }) => [styles.slowPill, pressed && styles.pressed]}
             >
               <PlayIcon size={11} color={C.text} />
-              <Text style={styles.slowText}>0.7× 慢速</Text>
+              <Text style={styles.slowText}>{t('pr.slow')}</Text>
             </Pressable>
           )}
         </View>
         {/* 階梯的走法寫成一行字：三顆鍵擺在一起看不出先後，而先後正是它的教學價值。 */}
         {mirrorLadder && (
-          <Text style={styles.ladderNote}>① 分塊 → ② 慢速 → ③ 原音（驗收）</Text>
+          <Text style={styles.ladderNote}>{t('pr.ladder_note')}</Text>
         )}
 
         {/* 來歷：這張卡憑什麼在這裡。它不是系統排給你的功課，是你自己按出來的。 */}
@@ -1345,19 +1374,19 @@ export default function PracticeScreen() {
                 onPress={() => setReveal('hint')}
                 style={({ pressed }) => [styles.revealBtn, pressed && styles.pressed]}
               >
-                <Text style={styles.revealBtnText}>再給一點提示</Text>
+                <Text style={styles.revealBtnText}>{t('pr.more_hint')}</Text>
               </Pressable>
             )}
             <Pressable
               onPress={onReveal}
               style={({ pressed }) => [styles.revealBtn, pressed && styles.pressed]}
             >
-              <Text style={styles.revealBtnText}>看逐字稿</Text>
+              <Text style={styles.revealBtnText}>{t('pr.see_transcript')}</Text>
             </Pressable>
           </View>
         )}
         {transcript.phase === 'ready' && focus !== '' && step === 'confirm' && (
-          <Text style={styles.maskNote}>逐字稿在你回答下面那題之後才會開。</Text>
+          <Text style={styles.maskNote}>{t('pr.mask_note')}</Text>
         )}
       </Glass>
 
@@ -1366,19 +1395,19 @@ export default function PracticeScreen() {
            沒有色暈：這一步他還沒動手，只是被問。 */
         <Glass radius={R.lg} style={styles.section}>
           <Text style={styles.confirmPrompt}>
-            聽完再決定。{'\n'}是真的沒聽懂，還是只是分心？
+            {t('pr.decide')}{'\n'}{t('pr.decide2')}
           </Text>
           <Pressable
             onPress={onConfirm}
             style={({ pressed }) => [styles.primaryBtn, pressed && styles.pressed]}
           >
-            <Text style={styles.primaryBtnText}>這段是真的沒聽懂</Text>
+            <Text style={styles.primaryBtnText}>{t('pr.confirm_yes')}</Text>
           </Pressable>
           <Pressable
             onPress={onDismiss}
             style={({ pressed }) => [styles.ghostBtn, pressed && styles.pressed]}
           >
-            <Text style={styles.ghostBtnText}>只是分心，滑掉</Text>
+            <Text style={styles.ghostBtnText}>{t('pr.confirm_no')}</Text>
           </Pressable>
         </Glass>
       ) : (
@@ -1399,7 +1428,7 @@ export default function PracticeScreen() {
            */}
           {step === 'practice' && reveal === 'full' && focus !== '' && noticed === null && (
             <Glass radius={R.lg} style={styles.section}>
-              <Text style={styles.sectionTitle}>你覺得卡在哪？</Text>
+              <Text style={styles.sectionTitle}>{t('pr.where_stuck')}</Text>
               <View style={styles.noticeTokens}>
                 {noticeWords.map((w, i) => {
                   const on = noticeTokens.includes(i);
@@ -1436,7 +1465,7 @@ export default function PracticeScreen() {
                     pressed && styles.pressed,
                   ]}
                 >
-                  <Text style={styles.actionBtnText}>就是這幾個字</Text>
+                  <Text style={styles.actionBtnText}>{t('pr.these_words')}</Text>
                 </Pressable>
                 {/* 「切不出有幾個字」不是「不知道」：那是詞界切分失敗（Field 2003），
                     是這個產品獨有的那一格資料，所以給它自己的按鈕而不是併進跳過。 */}
@@ -1444,7 +1473,7 @@ export default function PracticeScreen() {
                   onPress={() => setNoticed({ kind: 'segmentation' })}
                   style={({ pressed }) => [styles.actionBtn, pressed && styles.pressed]}
                 >
-                  <Text style={styles.actionBtnText}>我切不出這裡有幾個字</Text>
+                  <Text style={styles.actionBtnText}>{t('pr.cant_split')}</Text>
                 </Pressable>
                 <Pressable
                   onPress={() => setNoticed({ kind: 'skip' })}
@@ -1454,7 +1483,7 @@ export default function PracticeScreen() {
                     pressed && styles.pressed,
                   ]}
                 >
-                  <Text style={styles.ghostBtnText}>跳過</Text>
+                  <Text style={styles.ghostBtnText}>{t('pr.skip')}</Text>
                 </Pressable>
               </View>
             </Glass>
@@ -1475,7 +1504,7 @@ export default function PracticeScreen() {
                   <View style={styles.rowWrap}>
                     <View style={[styles.chip, styles.chipDiag]}>
                       <Text style={styles.chipTextDiag}>
-                        {DIAGNOSIS_LABELS_ZH[liveCapture.diagnosis.type]}
+                        {diagnosisLabel(liveCapture.diagnosis.type)}
                       </Text>
                     </View>
                     <Text style={styles.diagFocus}>
@@ -1495,9 +1524,9 @@ export default function PracticeScreen() {
                    */}
                   {noticed?.kind === 'phrase' && (
                     <View style={styles.noticeCompare}>
-                      <Text style={styles.noticedText}>你圈的：{noticed.text}</Text>
+                      <Text style={styles.noticedText}>{t('pr.you_circled', { text: noticed.text })}</Text>
                       <Text style={styles.diagFocus}>
-                        我們判斷：{liveCapture.diagnosis.focus_phrase}
+                        {t('pr.we_think', { phrase: liveCapture.diagnosis.focus_phrase })}
                       </Text>
                       {(() => {
                         const a = normalizeNotice(noticed.text);
@@ -1507,7 +1536,7 @@ export default function PracticeScreen() {
                         const same = sameNoticeSpan(a, b);
                         return (
                           <Text style={same ? styles.compareSame : styles.compareDiff}>
-                            {same ? '同一處' : '不同處——先信你圈的'}
+                            {same ? t('pr.same_spot') : t('pr.diff_spot')}
                           </Text>
                         );
                       })()}
@@ -1515,9 +1544,9 @@ export default function PracticeScreen() {
                   )}
                   {noticed?.kind === 'segmentation' && (
                     <View style={styles.noticeCompare}>
-                      <Text style={styles.noticedText}>你說：這裡切不出有幾個字</Text>
+                      <Text style={styles.noticedText}>{t('pr.you_said_cant_split')}</Text>
                       <Text style={styles.diagFocus}>
-                        我們判斷：{liveCapture.diagnosis.focus_phrase}
+                        {t('pr.we_think', { phrase: liveCapture.diagnosis.focus_phrase })}
                       </Text>
                     </View>
                   )}
@@ -1532,11 +1561,11 @@ export default function PracticeScreen() {
               ) : diagnosing ? (
                 <View style={[styles.rowCenter, styles.diagnosisPending]}>
                   <ActivityIndicator color={C.amber} size="small" />
-                  <Text style={styles.dimLine}>{'  '}Claude 診斷中…</Text>
+                  <Text style={styles.dimLine}>{'  '}{t('pr.diagnosing')}</Text>
                 </View>
               ) : !isDiagnosisConfigured() ? (
                 <Text style={[styles.dimLine, styles.diagnosisPending]}>
-                  （未設定 Anthropic key，略過難點診斷）
+                  {t('pr.no_anthropic')}
                 </Text>
               ) : null}
             </>
@@ -1544,7 +1573,7 @@ export default function PracticeScreen() {
 
           {/* Step d — 跟讀 */}
           <Glass radius={R.lg} style={styles.section}>
-            <Text style={styles.sectionTitle}>跟讀</Text>
+            <Text style={styles.sectionTitle}>{t('pr.shadow')}</Text>
             {recordError && <Text style={styles.errorText}>{recordError}</Text>}
             <View style={styles.row}>
               {recorderState.isRecording ? (
@@ -1553,7 +1582,7 @@ export default function PracticeScreen() {
                   style={({ pressed }) => [styles.recordBtnActive, pressed && styles.pressed]}
                 >
                   <Text style={styles.recordBtnActiveText}>
-                    ⏹ 停止（{Math.round((recorderState.durationMillis ?? 0) / 1000)}s）
+                    {t('pr.stop_rec', { s: Math.round((recorderState.durationMillis ?? 0) / 1000) })}
                   </Text>
                 </Pressable>
               ) : (
@@ -1562,7 +1591,7 @@ export default function PracticeScreen() {
                   style={({ pressed }) => [styles.actionBtn, pressed && styles.pressed]}
                 >
                   <Text style={styles.actionBtnText}>
-                    {recordingUri ? '🎙 重錄' : '🎙 開始跟讀'}
+                    {recordingUri ? t('pr.rerecord') : t('pr.start_rec')}
                   </Text>
                 </Pressable>
               )}
@@ -1571,7 +1600,7 @@ export default function PracticeScreen() {
                   onPress={() => void playRecording()}
                   style={({ pressed }) => [styles.actionBtn, pressed && styles.pressed]}
                 >
-                  <Text style={styles.actionBtnText}>▶ 我的錄音</Text>
+                  <Text style={styles.actionBtnText}>{t('pr.my_recording')}</Text>
                 </Pressable>
               )}
               {recordingUri && !recorderState.isRecording && (
@@ -1579,7 +1608,7 @@ export default function PracticeScreen() {
                   onPress={() => void playSegment(1)}
                   style={({ pressed }) => [styles.actionBtn, pressed && styles.pressed]}
                 >
-                  <Text style={styles.actionBtnText}>▶ 原音對照</Text>
+                  <Text style={styles.actionBtnText}>{t('pr.compare_original')}</Text>
                 </Pressable>
               )}
             </View>
@@ -1587,25 +1616,25 @@ export default function PracticeScreen() {
 
           {/* Step e — 評分 */}
           <Glass radius={R.lg} style={styles.section}>
-            <Text style={styles.sectionTitle}>這句的掌握度</Text>
+            <Text style={styles.sectionTitle}>{t('pr.mastery')}</Text>
             <View style={styles.row}>
               <Pressable
                 onPress={() => onGrade('again')}
                 style={({ pressed }) => [styles.gradeAgain, pressed && styles.pressed]}
               >
-                <Text style={styles.gradeAgainText}>再來一次</Text>
+                <Text style={styles.gradeAgainText}>{t('pr.grade_again')}</Text>
               </Pressable>
               <Pressable
                 onPress={() => onGrade('good')}
                 style={({ pressed }) => [styles.gradeGood, pressed && styles.pressed]}
               >
-                <Text style={styles.gradeGoodText}>記住了</Text>
+                <Text style={styles.gradeGoodText}>{t('pr.grade_good')}</Text>
               </Pressable>
               <Pressable
                 onPress={() => onGrade('easy')}
                 style={({ pressed }) => [styles.gradeEasy, pressed && styles.pressed]}
               >
-                <Text style={styles.gradeEasyText}>太簡單</Text>
+                <Text style={styles.gradeEasyText}>{t('pr.grade_easy')}</Text>
               </Pressable>
             </View>
           </Glass>

@@ -17,6 +17,7 @@ import { Modal, Platform, Pressable, StyleSheet, Text, View } from 'react-native
 
 import { C, GLASS, R, SP, TYPE } from '../lib/theme';
 import { SelectionKind, TranscriptSegment } from '../lib/types';
+import { t, useLang } from '../lib/i18n';
 import Glass from './Glass';
 
 export interface SelectionDraft {
@@ -38,6 +39,9 @@ export default function SelectionSheet({
   onCancel,
   onPick,
 }: SelectionSheetProps) {
+  // 訂閱語言：回傳值不用，作用是讓這個元件在切換語言時重繪，
+  // 好讓底下的 t() 重新查表。
+  useLang();
   // 關閉的瞬間 draft 就變成 null，但 Modal 還要滑下去 ~300ms。留住最後一個值，
   // 否則使用者會看著一張突然變空白的紙滑出畫面（與 TermSheet 同一個理由）。
   const lastDraft = useRef<SelectionDraft | null>(null);
@@ -58,7 +62,7 @@ export default function SelectionSheet({
           style={styles.backdrop}
           onPress={onCancel}
           accessibilityRole="button"
-          accessibilityLabel="取消，回到逐字稿"
+          accessibilityLabel={t('select.a11y_cancel')}
         />
 
         {/* 這張紙上發生的事是「學習者親手指認難點」，所以綠暈是它憑語意賺到的。 */}
@@ -93,18 +97,18 @@ export default function SelectionSheet({
                 onPress={() => onPick('vocab')}
                 style={({ pressed }) => [styles.pick, pressed && styles.pressed]}
                 accessibilityRole="button"
-                accessibilityLabel="這是單字或片語"
+                accessibilityLabel={t('select.a11y_word')}
               >
-                <Text style={styles.pickText}>單字／片語</Text>
+                <Text style={styles.pickText}>{t('select.word')}</Text>
               </Pressable>
 
               <Pressable
                 onPress={() => onPick('grammar')}
                 style={({ pressed }) => [styles.pick, pressed && styles.pressed]}
                 accessibilityRole="button"
-                accessibilityLabel="這是句型或文法"
+                accessibilityLabel={t('select.a11y_pattern')}
               >
-                <Text style={styles.pickText}>句型／文法</Text>
+                <Text style={styles.pickText}>{t('select.pattern')}</Text>
               </Pressable>
             </View>
 
@@ -112,9 +116,9 @@ export default function SelectionSheet({
               onPress={onCancel}
               style={({ pressed }) => [styles.cancel, pressed && styles.pressed]}
               accessibilityRole="button"
-              accessibilityLabel="取消，回到逐字稿"
+              accessibilityLabel={t('select.a11y_cancel')}
             >
-              <Text style={styles.cancelText}>取消</Text>
+              <Text style={styles.cancelText}>{t('select.cancel')}</Text>
             </Pressable>
           </View>
         </Glass>

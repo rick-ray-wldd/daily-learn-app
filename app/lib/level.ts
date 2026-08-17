@@ -33,6 +33,7 @@
  *   一個瞎猜的等級比沒有等級更糟——它會讓學習者照著錯的難度挑材料。
  */
 import type { TranscriptSegment } from './types';
+import { t } from './i18n';
 
 /** 1 最易、5 最難。 */
 export type Level = 1 | 2 | 3 | 4 | 5;
@@ -55,13 +56,13 @@ export interface LevelEstimate {
   measured: boolean;
 }
 
-export const LEVEL_LABEL_ZH: Record<Level, string> = {
-  1: '入門',
-  2: '初階',
-  3: '中階',
-  4: '中高階',
-  5: '進階',
-};
+/**
+ * 1–5 的標籤搬到 `lib/i18n.ts` 的 `level.1`…`level.5`，用 `t()` 在**畫面上**查。
+ *
+ * 這裡原本是一個模組層級常數。改掉的理由與 `diagnosisLabel()` 同一條：
+ * 常數在 import 時求值一次，切換語言之後它不會變。唯一的使用端
+ * （`components/LevelChip.tsx`）已改成直接 `t(\`level.${level}\`)`。
+ */
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 語速與詞彙指標
@@ -150,7 +151,7 @@ export function levelFromMetrics(m: TranscriptMetrics): LevelEstimate {
     level,
     basis: 'transcript',
     measured: true,
-    reason_zh: `語速 ${Math.round(m.wpm)} wpm・詞彙多樣性 ${m.ttr.toFixed(2)}`,
+    reason_zh: t('level.reason_transcript', { wpm: Math.round(m.wpm), ttr: m.ttr.toFixed(2) }),
   };
 }
 
@@ -193,7 +194,7 @@ export function levelFromListening(
     level,
     basis: 'listened',
     measured: true,
-    reason_zh: `你每 10 分鐘倒帶 ${per10.toFixed(1)} 次`,
+    reason_zh: t('level.reason_listened', { n: per10.toFixed(1) }),
   };
 }
 
@@ -209,18 +210,19 @@ export function levelFromListening(
  * （`measured: false`），不然學習者會以為那是測出來的。
  */
 const GENRE_PRIOR: Array<{ match: RegExp; level: Level; why: string }> = [
-  { match: /kids|family|children/i, level: 1, why: '兒童節目語速慢、用詞淺' },
-  { match: /language|learning|education/i, level: 2, why: '教學類通常放慢並重述' },
-  { match: /fiction|story|drama/i, level: 3, why: '敘事類語速中等但用詞多樣' },
-  { match: /comedy|society|culture|arts/i, level: 4, why: '談話與喜劇語速快、慣用語多' },
-  { match: /news|politic|business|tech|science|health|medic/i, level: 4, why: '新聞與專業題材術語密度高' },
+  { match: /kids|family|children/i, level: 1, why: 'level.genre_kids' },
+  { match: /language|learning|education/i, level: 2, why: 'level.genre_learning' },
+  { match: /fiction|story|drama/i, level: 3, why: 'level.genre_fiction' },
+  { match: /comedy|society|culture|arts/i, level: 4, why: 'level.genre_talk' },
+  { match: /news|politic|business|tech|science|health|medic/i, level: 4, why: 'level.genre_news' },
 ];
 
 export function levelFromGenre(genre?: string): LevelEstimate | null {
   if (!genre) return null;
   for (const g of GENRE_PRIOR) {
     if (g.match.test(genre)) {
-      return { level: g.level, basis: 'genre', measured: false, reason_zh: g.why };
+      // why 存的是 i18n key（這個陣列是模組層級常數，塞字面會凍住語言）
+      return { level: g.level, basis: 'genre', measured: false, reason_zh: t(g.why) };
     }
   }
   return null;

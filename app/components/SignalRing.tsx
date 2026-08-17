@@ -19,6 +19,9 @@ import { StyleSheet, Text, View } from 'react-native';
 import type { ViewStyle } from 'react-native';
 
 import { C, GLASS, RAMP, TYPE } from '../lib/theme';
+// centerLabel 的預設值用 t()：預設參數在**每次呼叫時**求值，所以呼叫端
+// （HomeScreen，它有 useLang）重繪時就會拿到新語言，這裡不必自己訂閱。
+import { t } from '../lib/i18n';
 
 export interface SignalRingProps {
   /** 本週重聽段落數 = 環的分母。0 → 空環。 */
@@ -45,7 +48,7 @@ function SignalRingBase({
   mastered,
   size = 92,
   centerValue,
-  centerLabel = '重聽',
+  centerLabel = t('signal.center'),
 }: SignalRingProps): React.ReactElement {
   const tickStyles = useMemo<ViewStyle[]>(() => {
     const n = Math.max(0, Math.round(rewinds));

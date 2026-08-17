@@ -25,6 +25,7 @@ import { Chevron, PauseIcon, PlayIcon, SkipIcon, TranscriptIcon } from './Glyph'
 import { Episode } from '../lib/episodes';
 import { getSegments } from '../lib/transcript';
 import { C, R, SP, TYPE } from '../lib/theme';
+import { t, useLang } from '../lib/i18n';
 
 const BACK_SECONDS = 15;
 const FORWARD_SECONDS = 30;
@@ -69,6 +70,8 @@ export default function NowPlaying({
   onSeek,
   onOpenTranscript,
 }: Props) {
+  // 訂閱語言：回傳值不用，作用是切換時重繪好讓 t() 重新查表。
+  useLang();
   const { width, height } = useWindowDimensions();
   const [scrubSec, setScrubSec] = useState<number | null>(null);
 
@@ -160,7 +163,7 @@ export default function NowPlaying({
           hitSlop={12}
           style={({ pressed }) => [styles.closeBtn, pressed && styles.pressed]}
           accessibilityRole="button"
-          accessibilityLabel="收起播放器"
+          accessibilityLabel={t('player.a11y_collapse')}
         >
           <Chevron direction="down" size={12} color={C.text} weight={2.5} />
         </Pressable>
@@ -212,7 +215,7 @@ export default function NowPlaying({
           onPress={onBack15}
           style={({ pressed }) => [styles.skipBtn, pressed && styles.pressed]}
           accessibilityRole="button"
-          accessibilityLabel="重聽 15 秒"
+          accessibilityLabel={t('home.a11y_back15')}
         >
           <SkipIcon seconds={BACK_SECONDS} direction="back" size={42} color={C.accent} />
         </Pressable>
@@ -221,7 +224,7 @@ export default function NowPlaying({
           onPress={onTogglePlay}
           style={({ pressed }) => [styles.playBtn, pressed && styles.pressed]}
           accessibilityRole="button"
-          accessibilityLabel={playing ? '暫停' : '播放'}
+          accessibilityLabel={playing ? t('home.a11y_pause') : t('home.a11y_play')}
         >
           {playing ? <PauseIcon size={26} color={C.bg} /> : <PlayIcon size={28} color={C.bg} />}
         </Pressable>
@@ -230,7 +233,7 @@ export default function NowPlaying({
           onPress={onForward30}
           style={({ pressed }) => [styles.skipBtn, pressed && styles.pressed]}
           accessibilityRole="button"
-          accessibilityLabel="快轉 30 秒"
+          accessibilityLabel={t('home.a11y_forward30')}
         >
           <SkipIcon seconds={FORWARD_SECONDS} direction="forward" size={34} color={C.dim} />
         </Pressable>
@@ -241,11 +244,11 @@ export default function NowPlaying({
         onPress={onOpenTranscript}
         style={({ pressed }) => [styles.peek, pressed && styles.pressed]}
         accessibilityRole="button"
-        accessibilityLabel="打開逐字稿"
+        accessibilityLabel={t('home.a11y_open_transcript')}
       >
         <TranscriptIcon size={14} color={peek ? C.dim : C.faint} />
         <Text style={peek ? styles.peekText : styles.peekHint} numberOfLines={1}>
-          {peek ?? '逐字稿'}
+          {peek ?? t('player.peek_placeholder')}
         </Text>
         <Chevron direction="up" size={8} color={C.faint} weight={1.8} />
       </Pressable>
@@ -258,7 +261,7 @@ export default function NowPlaying({
         >
           <Text style={styles.rateText}>{rate}x</Text>
         </Pressable>
-        <Text style={styles.footText}>今天 {todayCount} 次重聽</Text>
+        <Text style={styles.footText}>{t('player.today_rewinds', { n: todayCount })}</Text>
         <Text style={styles.footText}>{loadState ?? ''}</Text>
       </View>
     </View>

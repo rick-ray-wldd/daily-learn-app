@@ -20,6 +20,7 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-nati
 import * as Updates from 'expo-updates';
 
 import { C, R, SP, TYPE } from '../lib/theme';
+import { t, useLang } from '../lib/i18n';
 
 /** OTA id 很長，前 8 碼就足夠比對「是不是我剛推的那顆」。 */
 function shortId(id: string | null): string {
@@ -42,6 +43,8 @@ function formatTime(d: Date | null | undefined): string {
 }
 
 export default function UpdateStatus() {
+  // 訂閱語言：回傳值不用，作用是切換時重繪好讓 t() 重新查表。
+  useLang();
   const {
     currentlyRunning,
     isUpdateAvailable,
@@ -61,9 +64,9 @@ export default function UpdateStatus() {
   const rolledBack = currentlyRunning.isEmergencyLaunch === true;
 
   const label = rolledBack
-    ? '已回滾到內建版'
+    ? t('update.rolled_back')
     : embedded
-      ? '內建版本'
+      ? t('update.builtin')
       : `OTA ${shortId(currentlyRunning.updateId ?? null)}`;
 
   const busy = isChecking || isDownloading;
@@ -72,36 +75,36 @@ export default function UpdateStatus() {
     setNote(null);
 
     if (!Updates.isEnabled) {
-      setNote('這顆 build 沒有啟用更新（開發模式下 OTA 是關的）');
+      setNote(t('update.disabled'));
       return;
     }
 
     try {
       // 已經下載好、只差重啟的情況不必再跑一次網路。
       if (isUpdatePending) {
-        setNote('套用中…');
+        setNote(t('update.applying'));
         await Updates.reloadAsync();
         return;
       }
 
-      setNote('檢查中…');
+      setNote(t('update.checking'));
       const result = await Updates.checkForUpdateAsync();
       if (!result.isAvailable) {
-        setNote('伺服器上沒有更新的版本了');
+        setNote(t('update.none'));
         return;
       }
 
-      setNote('下載中…');
+      setNote(t('update.downloading'));
       const fetched = await Updates.fetchUpdateAsync();
       if (!fetched.isNew) {
-        setNote('下載到的是同一顆，沒有變更');
+        setNote(t('update.same'));
         return;
       }
 
-      setNote('下載完成，重新啟動…');
+      setNote(t('update.done_restarting'));
       await Updates.reloadAsync(); // 這行之後 app 會重啟，下面不會執行到
     } catch (err) {
-      setNote(`失敗：${err instanceof Error ? err.message : String(err)}`);
+      setNote(t('update.failed', { msg: err instanceof Error ? err.message : String(err) }));
     }
   }
 
@@ -121,26 +124,26 @@ export default function UpdateStatus() {
             isUpdatePending && styles.pillReady,
           ]}
         >
-          {isUpdatePending ? '更新已就緒 · 點我套用' : label}
+          {isUpdatePending ? t('update.ready') : label}
         </Text>
       </Pressable>
 
       {open && (
         <View style={styles.card}>
-          <Row k="執行中" v={label} warn={rolledBack} />
-          <Row k="發佈時間" v={formatTime(currentlyRunning.createdAt)} />
+          <Row k={t('update.running')} v={label} warn={rolledBack} />
+          <Row k={t('update.published_at')} v={formatTime(currentlyRunning.createdAt)} />
           <Row k="channel" v={currentlyRunning.channel ?? '—'} />
           <Row k="runtime" v={currentlyRunning.runtimeVersion ?? '—'} />
           {rolledBack && (
             <Text style={styles.warnText}>
-              新版本啟動時失敗，已自動退回內建版。原因：
-              {currentlyRunning.emergencyLaunchReason ?? '未提供'}
+              {t('update.rollback_note')}
+              {currentlyRunning.emergencyLaunchReason ?? t('update.unknown')}
             </Text>
           )}
           {isUpdateAvailable && !isUpdatePending && (
-            <Text style={styles.hint}>伺服器上有新版本</Text>
+            <Text style={styles.hint}>{t('update.available')}</Text>
           )}
-          {error && <Text style={styles.warnText}>錯誤：{error.message}</Text>}
+          {error && <Text style={styles.warnText}>{t('update.error', { msg: error.message })}</Text>}
           {note && <Text style={styles.hint}>{note}</Text>}
 
           <Pressable
@@ -152,7 +155,7 @@ export default function UpdateStatus() {
               <ActivityIndicator size="small" color={C.text} />
             ) : (
               <Text style={styles.buttonText}>
-                {isUpdatePending ? '重新啟動以套用' : '檢查更新'}
+                {isUpdatePending ? t('update.restart_to_apply') : t('update.check')}
               </Text>
             )}
           </Pressable>

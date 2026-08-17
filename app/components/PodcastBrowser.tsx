@@ -28,6 +28,7 @@ import { C as THEME, ELEV, GLASS, LEVEL, LEVEL_UNKNOWN, R, SP, TYPE } from '../l
 import { estimateLevel, type LevelEstimate } from '../lib/level';
 import { getSegments } from '../lib/transcript';
 import LevelChip from './LevelChip';
+import { t, useLang } from '../lib/i18n';
 import {
   addFeed,
   getCaptures,
@@ -94,12 +95,14 @@ export default function PodcastBrowser({
   selectedEpisodeId,
   onSelectEpisode,
 }: Props) {
+  // 訂閱語言：回傳值不用，作用是切換時重繪好讓 t() 重新查表。
+  useLang();
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<PodcastSearchResult[] | null>(null); // null = 非搜尋模式
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [subscribingUrl, setSubscribingUrl] = useState<string | null>(null);
-  const [selectedFeedUrl, setSelectedFeedUrl] = useState<string | null>(null); // null = 「預設」DEMO
+  const [selectedFeedUrl, setSelectedFeedUrl] = useState<string | null>(null); // null = 「{t('browse.default')}」DEMO
   const [refreshing, setRefreshing] = useState(false);
   const [feedNotice, setFeedNotice] = useState<string | null>(null);
 
@@ -123,7 +126,7 @@ export default function PodcastBrowser({
       if (err instanceof Error && err.name === 'AbortError') {
         // 被更新的搜尋取消 → 靜默
       } else if (abortRef.current === ctl) {
-        setSearchError('搜尋失敗，請檢查網路');
+        setSearchError(t('browse.search_failed'));
       }
     } finally {
       if (abortRef.current === ctl) setSearching(false);
@@ -185,7 +188,7 @@ export default function PodcastBrowser({
       setSearchError(null);
     } catch (err) {
       setSearchError(
-        '訂閱失敗：' + (err instanceof Error ? err.message : String(err)),
+        t('browse.subscribe_failed', { msg: err instanceof Error ? err.message : String(err) }),
       );
     } finally {
       setSubscribingUrl(null);
@@ -204,7 +207,7 @@ export default function PodcastBrowser({
       setFeedEpisodes(feedUrl, parsed.episodes);
       setFeedNotice(null);
     } catch {
-      setFeedNotice('更新失敗，顯示快取內容');
+      setFeedNotice(t('browse.refresh_failed'));
     } finally {
       setRefreshing(false);
     }
@@ -237,7 +240,7 @@ export default function PodcastBrowser({
           value={query}
           onChangeText={onChangeQuery}
           onSubmitEditing={onSubmitQuery}
-          placeholder="搜尋 podcast 節目…"
+          placeholder={t('browse.placeholder')}
           placeholderTextColor={C.dim}
           returnKeyType="search"
           autoCapitalize="none"
@@ -256,7 +259,7 @@ export default function PodcastBrowser({
           {searching && (
             <View style={styles.searchStatusRow}>
               <ActivityIndicator color={C.accent} size="small" />
-              <Text style={styles.dimText}> 搜尋中…</Text>
+              <Text style={styles.dimText}>{t('browse.searching')}</Text>
             </View>
           )}
           {!searching && searchError && (
@@ -266,7 +269,7 @@ export default function PodcastBrowser({
           )}
           {!searching && !searchError && results && results.length === 0 && (
             <Text style={[styles.dimText, styles.searchStatusPad]}>
-              找不到節目，換個關鍵字試試
+              {t('browse.no_results')}
             </Text>
           )}
           {!searching && results && results.length > 0 && (
@@ -299,7 +302,7 @@ export default function PodcastBrowser({
                       </Text>
                       <Text style={styles.resultSub} numberOfLines={1}>
                         {item.author}
-                        {item.episodeCount ? ` · ${item.episodeCount} 集` : ''}
+                        {item.episodeCount ? t('browse.n_episodes', { n: item.episodeCount }) : ''}
                       </Text>
                       <View style={styles.resultChipRow}>
                         <LevelChip estimate={lvl} />
@@ -307,7 +310,7 @@ export default function PodcastBrowser({
                     </View>
                     {subscribed ? (
                       <View style={[styles.subBtn, styles.subBtnDone]}>
-                        <Text style={styles.subBtnDoneText}>已訂閱</Text>
+                        <Text style={styles.subBtnDoneText}>{t('browse.subscribed')}</Text>
                       </View>
                     ) : subscribingUrl === item.feedUrl ? (
                       <View style={styles.subBtn}>
@@ -322,7 +325,7 @@ export default function PodcastBrowser({
                           pressed && styles.pressed,
                         ]}
                       >
-                        <Text style={styles.subBtnText}>訂閱</Text>
+                        <Text style={styles.subBtnText}>{t('browse.subscribe')}</Text>
                       </Pressable>
                     )}
                   </View>
@@ -348,7 +351,7 @@ export default function PodcastBrowser({
               ]}
             >
               <Text style={styles.feedCardSub} numberOfLines={1}>
-                內建示範
+                {t('browse.builtin_demo')}
               </Text>
               <Text
                 style={[
@@ -357,7 +360,7 @@ export default function PodcastBrowser({
                 ]}
                 numberOfLines={2}
               >
-                預設
+                {t('browse.default')}
               </Text>
             </Pressable>
             {feeds.map((feed) => {
@@ -416,7 +419,7 @@ export default function PodcastBrowser({
             }
             ListEmptyComponent={
               selectedFeedUrl ? (
-                <Text style={styles.dimText}>（沒有可播放的單集）</Text>
+                <Text style={styles.dimText}>{t('browse.no_playable')}</Text>
               ) : null
             }
             renderItem={({ item }) => {
@@ -471,13 +474,13 @@ export default function PodcastBrowser({
                     <LevelChip estimate={lvl} />
                     {item.transcriptUrl && (
                       <View style={styles.chipTranscript}>
-                        <Text style={styles.chipText}>逐字稿</Text>
+                        <Text style={styles.chipText}>{t('browse.transcript_chip')}</Text>
                       </View>
                     )}
                     {tooLong && (
                       <View style={styles.chipTooLong}>
                         <Text style={styles.chipDimText}>
-                          此集太長暫不支援轉錄
+                          {t('browse.too_long')}
                         </Text>
                       </View>
                     )}

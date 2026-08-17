@@ -33,6 +33,7 @@ import {
   type SkipReason,
 } from './liveActivity';
 import type { Capture } from './types';
+import { t } from './i18n';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 常數
@@ -135,13 +136,14 @@ export interface BuildQuizResult {
  * 用 `Record<SkipReason, string>` 而不是 `Partial<...>`：`liveActivity.ts` 之後新增
  * 一個 SkipReason 時，這裡會**編譯失敗**而不是安靜地印出 `undefined`。
  */
+/** 存 i18n key 不存字面：模組層級常數塞 t() 會把語言凍在啟動當下。 */
 export const SKIP_REASON_ZH: Readonly<Record<SkipReason, string>> = {
-  segmentation: '整句切分題，斷點不在詞義上',
-  'no-prompt': '還沒診斷過，沒有題面',
-  'prompt-too-long': '題面過長',
-  'no-gloss': '沒有中文簡義（gloss_zh）',
-  'not-enough-distractors': '干擾項不足 2 個',
-  'label-too-long': '選項中文過長',
+  segmentation: 'quiz.skip_segmentation',
+  'no-prompt': 'quiz.skip_no_prompt',
+  'prompt-too-long': 'quiz.skip_prompt_long',
+  'no-gloss': 'quiz.skip_no_gloss',
+  'not-enough-distractors': 'quiz.skip_few_distractors',
+  'label-too-long': 'quiz.skip_label_long',
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -381,26 +383,26 @@ function summarize(
     const slots = questions
       .map((_, i) => formatSlot(QUIZ_SLOTS[i] ?? QUIZ_SLOTS[QUIZ_SLOTS.length - 1]))
       .join(' / ');
-    return `已排 ${questions.length} 題：${slots}`;
+    return t('quiz.sum_scheduled', { n: questions.length, slots });
   }
 
   switch (blocked) {
     case 'empty-queue':
-      return '今天沒有到期的卡，所以沒有排題目通知。';
+      return t('quiz.sum_no_due');
     case 'no-gloss':
       // 這句話**不准**再寫成「Edge Function 還沒生成這兩欄」——那是舊事實，會把人
       // 指到伺服器去查一個沒有問題的東西。真正的原因只有兩種，都在裝置這一側。
-      return `佇列有 ${queue.length} 張卡有題面，但沒有一張帶中文簡義（gloss_zh）：不是舊格式的診斷（在 Edge Function 會生成這兩欄之前寫的），就是那次診斷不是生詞類。要補上的話得在練習頁重新診斷那張卡（改資料庫沒有用，佇列讀的是本機 store）。今天不排題目通知：寧可沒有，也不出一則猜的題目。`;
+      return t('quiz.sum_no_gloss', { n: queue.length });
     case 'not-enough-distractors':
-      return `有 ${countOf(skipped, 'not-enough-distractors')} 張卡有正解但干擾項不足 2 個，湊不出三選一。不排通知。`;
+      return t('quiz.sum_few_distractors', { n: countOf(skipped, 'not-enough-distractors') });
     case 'no-prompt':
       // 今天真實資料走的就是這一條（線上 15 筆有 14 筆沒有 diagnosis）。
-      return `有 ${countOf(skipped, 'no-prompt')} 張卡還沒被診斷過（沒有 focus_phrase 可以當題面）。診斷發生在練習頁按「看全文」的時候，練過就會有。今天不排題目通知。`;
+      return t('quiz.sum_no_prompt', { n: countOf(skipped, 'no-prompt') });
     default: {
       const dominant = dominantReason(skipped);
       const n = dominant ? countOf(skipped, dominant) : skipped.length;
-      const zh = dominant ? SKIP_REASON_ZH[dominant] : '原因不明';
-      return `${n} 張卡被排除（${zh}），今天沒有可出的題目。`;
+      const zh = dominant ? t(SKIP_REASON_ZH[dominant]) : t('quiz.reason_unknown');
+      return t('quiz.sum_other', { n, reason: zh });
     }
   }
 }

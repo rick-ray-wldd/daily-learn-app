@@ -64,6 +64,7 @@ import {
 } from '../lib/transcript';
 import { C, GLASS, R, SP, TYPE } from '../lib/theme';
 import { SelectionKind, TranscriptSegment } from '../lib/types';
+import { t, useLang } from '../lib/i18n';
 
 /** 展開時驅動轉錄的節流間隔。ensureWindowFor 自己會去重，這裡只是不要每 250ms 敲一次。 */
 const ENSURE_INTERVAL_MS = 3000;
@@ -399,6 +400,8 @@ export default function TranscriptScreen({
   onBack15,
   onForward30,
 }: Props) {
+  // 訂閱語言：切換時重繪，好讓 t() 重新查表。
+  useLang();
   const [segments, setSegments] = useState<TranscriptSegment[]>(() =>
     getSegments(episode.id),
   );
@@ -798,7 +801,7 @@ export default function TranscriptScreen({
       durationSec,
     });
     exitSelection();
-    setConfirmed('已加入今天的練習');
+    setConfirmed(t('ts.added_to_practice'));
     if (confirmTimer.current) clearTimeout(confirmTimer.current);
     confirmTimer.current = setTimeout(() => setConfirmed(null), CONFIRM_PILL_MS);
   };
@@ -830,7 +833,7 @@ export default function TranscriptScreen({
       durationSec,
     });
     exitSelection();
-    setConfirmed('已記下：這一句我切不出詞');
+    setConfirmed(t('ts.noted_segmentation'));
     if (confirmTimer.current) clearTimeout(confirmTimer.current);
     confirmTimer.current = setTimeout(() => setConfirmed(null), CONFIRM_PILL_MS);
   };
@@ -853,8 +856,8 @@ export default function TranscriptScreen({
     : failure // 伺服器已經寫成使用者看得懂的中文，原文照登
       ? failure
       : !canFetch
-        ? '本地模式，逐字稿需要連線'
-        : '轉錄中…';
+        ? t('ts.local_mode')
+        : t('ts.transcribing');
 
   return (
     <View style={styles.root}>
@@ -865,12 +868,12 @@ export default function TranscriptScreen({
           hitSlop={12}
           style={({ pressed }) => [styles.closeBtn, pressed && styles.pressed]}
           accessibilityRole="button"
-          accessibilityLabel="關閉逐字稿"
+          accessibilityLabel={t('ts.a11y_close')}
         >
           <Chevron direction="down" size={12} color={C.text} weight={2.5} />
         </Pressable>
         <View style={styles.headerText}>
-          <Text style={styles.headerTitle}>逐字稿</Text>
+          <Text style={styles.headerTitle}>{t('ts.title')}</Text>
           <Text style={styles.headerSub} numberOfLines={1}>
             {episode.title}
           </Text>
@@ -886,9 +889,9 @@ export default function TranscriptScreen({
           ]}
           accessibilityRole="button"
           accessibilityState={{ selected: selMode }}
-          accessibilityLabel={selMode ? '結束框選' : '開始框選'}
+          accessibilityLabel={selMode ? t('ts.a11y_select_on') : t('ts.a11y_select_off')}
         >
-          <Text style={[styles.selectBtnText, selMode && styles.selectBtnTextOn]}>框選</Text>
+          <Text style={[styles.selectBtnText, selMode && styles.selectBtnTextOn]}>{t('ts.select')}</Text>
         </Pressable>
       </View>
 
@@ -899,7 +902,7 @@ export default function TranscriptScreen({
       )}
       {!isAnnotationConfigured() && (
         <View style={styles.statusRow}>
-          <Text style={styles.statusText}>難點標註需要連線</Text>
+          <Text style={styles.statusText}>{t('ts.annotate_offline')}</Text>
         </View>
       )}
 
@@ -924,7 +927,7 @@ export default function TranscriptScreen({
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.listContent}
           ListEmptyComponent={
-            <Text style={styles.emptyText}>{status ?? '這一段還沒有逐字稿'}</Text>
+            <Text style={styles.emptyText}>{status ?? t('ts.empty')}</Text>
           }
           renderItem={({ item, index }) => {
             const key = rowKey(item);
@@ -957,7 +960,7 @@ export default function TranscriptScreen({
           <View pointerEvents="none" style={styles.pillWrap}>
             <Glass weight="thick" radius={R.pill} style={styles.pill}>
               <Text style={styles.pillText}>
-                {selRow === null ? '點一句話，再圈出聽不懂的字' : '點第一個字，再點最後一個字'}
+                {selRow === null ? t('ts.hint_pick_line') : t('ts.hint_pick_words')}
               </Text>
             </Glass>
           </View>
@@ -986,9 +989,9 @@ export default function TranscriptScreen({
                   hitSlop={8}
                   style={({ pressed }) => [styles.actionCancel, pressed && styles.pressed]}
                   accessibilityRole="button"
-                  accessibilityLabel="取消框選"
+                  accessibilityLabel={t('ts.a11y_cancel_select')}
                 >
-                  <Text style={styles.actionCancelText}>取消</Text>
+                  <Text style={styles.actionCancelText}>{t('ts.cancel')}</Text>
                 </Pressable>
               </View>
 
@@ -997,10 +1000,10 @@ export default function TranscriptScreen({
                   onPress={handleSegmentation}
                   style={({ pressed }) => [styles.actionSeg, pressed && styles.pressed]}
                   accessibilityRole="button"
-                  accessibilityLabel="我聽不出這裡有幾個字，把整句加入練習"
+                  accessibilityLabel={t('ts.a11y_cant_split')}
                 >
                   <Text style={styles.actionSegText} numberOfLines={1}>
-                    我聽不出這裡有幾個字
+                    {t('ts.cant_split_btn')}
                   </Text>
                 </Pressable>
                 {/* 綠按鈕維持實色：accentInk 的 9.7:1 是對實色 accent 算的。 */}
@@ -1008,9 +1011,9 @@ export default function TranscriptScreen({
                   onPress={openSelectionSheet}
                   style={({ pressed }) => [styles.actionAdd, pressed && styles.pressed]}
                   accessibilityRole="button"
-                  accessibilityLabel="把圈起來的字加入難點"
+                  accessibilityLabel={t('ts.a11y_add')}
                 >
-                  <Text style={styles.actionAddText}>加入難點</Text>
+                  <Text style={styles.actionAddText}>{t('ts.add_btn')}</Text>
                 </Pressable>
               </View>
             </View>
@@ -1033,7 +1036,7 @@ export default function TranscriptScreen({
             style={({ pressed }) => [styles.pillWrap, pressed && styles.pressed]}
           >
             <Glass weight="thick" radius={R.pill} style={styles.pill}>
-              <Text style={styles.pillText}>回到目前位置</Text>
+              <Text style={styles.pillText}>{t('ts.back_to_position')}</Text>
             </Glass>
           </Pressable>
         )}
@@ -1075,7 +1078,7 @@ export default function TranscriptScreen({
             onPress={onBack15}
             style={({ pressed }) => [styles.backBtn, pressed && styles.pressed]}
             accessibilityRole="button"
-            accessibilityLabel="重聽 15 秒"
+            accessibilityLabel={t('home.a11y_back15')}
           >
             <SkipIcon seconds={BACK_SECONDS} direction="back" size={30} color={C.accent} />
           </Pressable>
@@ -1084,7 +1087,7 @@ export default function TranscriptScreen({
             onPress={onTogglePlay}
             style={({ pressed }) => [styles.playBtn, pressed && styles.pressed]}
             accessibilityRole="button"
-            accessibilityLabel={playing ? '暫停' : '播放'}
+            accessibilityLabel={playing ? t('home.a11y_pause') : t('home.a11y_play')}
           >
             {playing ? <PauseIcon size={22} color={C.bg} /> : <PlayIcon size={24} color={C.bg} />}
           </Pressable>
@@ -1093,7 +1096,7 @@ export default function TranscriptScreen({
             onPress={onForward30}
             style={({ pressed }) => [styles.fwdBtn, pressed && styles.pressed]}
             accessibilityRole="button"
-            accessibilityLabel="快轉 30 秒"
+            accessibilityLabel={t('home.a11y_forward30')}
           >
             <SkipIcon
               seconds={FORWARD_SECONDS}
@@ -1279,7 +1282,7 @@ const styles = StyleSheet.create({
   },
   actionAddText: { ...TYPE.caption, color: C.accentInk, fontWeight: '700' },
   /**
-   * 「我聽不出這裡有幾個字」。**不給實色綠**：綠是那條路徑的主按鈕賺到的，
+   * 「{t('ts.cant_split_btn')}」。**不給實色綠**：綠是那條路徑的主按鈕賺到的，
    * 這一顆是同等合法但較少走的出口，用玻璃填色排在同一列即可。給它 flex:1
    * 是因為文案最長，讓它吃掉剩餘寬度、「加入難點」維持內容寬。
    */
