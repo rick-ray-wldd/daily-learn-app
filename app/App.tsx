@@ -40,7 +40,10 @@ import { getSegments } from './lib/transcript';
 import { getCaptures, getSrsItems, initStore, rememberEpisode, subscribe } from './lib/store';
 import { isDue, toDateStr, todayStr } from './lib/srs';
 import { shuffledDemoCaptures } from './lib/demoDeck';
+import { buildDeck, buildStartPayload, nextStaleDate } from './lib/liveActivity';
+import { probeEligibility, startActivity } from './lib/liveActivityNative';
 import {
+  DAILY_REMINDER_HOUR,
   fireDemoQuizSoon,
   getLastQuizStatus,
   harvestQuizResponse,
@@ -319,6 +322,8 @@ export default function App() {
   const [probeVersion, setProbeVersion] = useState(0);
   /** 上一次排程結果。初值讀模組層的快取，讓還沒 sync 完的那幾百毫秒也有東西可印。 */
   const [quizStatus, setQuizStatus] = useState<QuizStatus | null>(() => getLastQuizStatus());
+  // 示範鎖屏卡的最近一次結果。null = 還沒按過。
+  const [laMessage, setLaMessage] = useState<string | null>(null);
   /** 剛從通知按鈕收割回來的那一筆，只顯示一行、幾秒後自己消失。 */
   const [quizFeedback, setQuizFeedback] = useState<QuizOutcome | null>(null);
 
@@ -905,6 +910,10 @@ export default function App() {
           probes={probes}
           boot={audioBootProbe}
           quiz={quizStatus}
+          liveActivity={laMessage}
+          onDemoLiveActivity={() => {
+            void startDemoLiveActivity().then(setLaMessage);
+          }}
           onDemoQuiz={() => {
             // 示範題不進 store（見 lib/demoDeck.ts 檔頭），所以這裡不必先 initStore，
             // 也不會有任何一個指標被它動到。
@@ -1100,16 +1109,60 @@ function probeLine(p: RewindProbe): string {
  */
 const DEMO_QUIZ_DELAY_SEC = 12;
 
+/**
+ * 起一張示範鎖屏卡。
+ *
+ * 走的是**正式路徑**：`buildDeck` → `buildStartPayload` → 原生 `Activity.request`。
+ * 只有資料是預設的（`shuffledDemoCaptures`，不進 store）。
+ *
+ * ⚠️ 這條路在**沒有跑過 withEchoWidget plugin 的 binary 上一定會失敗**，而且那是
+ * 正確行為——回傳的訊息會明說「這顆 binary 沒有鎖屏卡模組」。OTA 送不出原生碼。
+ */
+async function startDemoLiveActivity(): Promise<string> {
+  const eligible = await probeEligibility();
+  if (!eligible.ok) {
+    const zh: Record<string, string> = {
+      'not-ios': '只有 iOS 有 Live Activity。',
+      'ios-too-old': 'Live Activity 需要 iOS 17 以上。',
+      'native-module-missing': '這顆 binary 沒有鎖屏卡模組——要重新 build 並安裝。',
+      'activities-disabled': '系統設定裡的「即時動態」是關的：設定 → Echo → 打開。',
+      'empty-deck': '今天沒有題目。',
+    };
+    return zh[eligible.reason] ?? eligible.reason;
+  }
+
+  const { deck, skipped } = buildDeck({
+    queue: shuffledDemoCaptures(),
+    today: todayStr(),
+  });
+  if (!deck) {
+    return `示範牌組建不起來（跳過 ${skipped.length} 張）。`;
+  }
+
+  const payload = buildStartPayload({
+    deck,
+    staleDate: nextStaleDate(new Date(), DAILY_REMINDER_HOUR),
+  });
+  const result = await startActivity(payload);
+  return result.ok
+    ? `鎖屏卡已啟動（${deck.cards.length} 題）。鎖上螢幕看看。`
+    : (result.error_zh ?? '起卡失敗。');
+}
+
 function DevProbes({
   probes,
   boot,
   quiz,
+  liveActivity,
   onDemoQuiz,
+  onDemoLiveActivity,
 }: {
   probes: readonly RewindProbe[];
   boot: AudioBootProbe;
   quiz: QuizStatus | null;
+  liveActivity: string | null;
   onDemoQuiz: () => void;
+  onDemoLiveActivity: () => void;
 }) {
   const [open, setOpen] = useState(false);
   // 'function' 以外就是這顆 binary 沒有那支原生函式——那比任何一道閘更能解釋
@@ -1161,6 +1214,10 @@ function DevProbes({
               {`示範題 · ${DEMO_QUIZ_DELAY_SEC} 秒後響（按完請鎖螢幕）`}
             </Text>
           </Pressable>
+          <Pressable onPress={onDemoLiveActivity} style={styles.probeBtn} hitSlop={6}>
+            <Text style={styles.probeBtnText}>示範鎖屏卡（需要新 build）</Text>
+          </Pressable>
+          {liveActivity !== null && <Text style={styles.probeLine}>{liveActivity}</Text>}
           <Text style={styles.probeLine}>
             示範題用預設單字，不寫進任何統計，答完也不會推進 SRS。
           </Text>

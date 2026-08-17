@@ -70,6 +70,23 @@ const SHARED_SOURCES = [
   'EchoAnswerIntent.swift',
 ];
 
+/**
+ * **只編進主 app target，不進 extension** 的兩個檔。
+ *
+ * 為什麼不能放進 SHARED_SOURCES：extension 行程裡 `Activity<T>.activities` 永遠是
+ * 空陣列（見 `EchoAnswerIntent.swift` 檔頭），起卡這件事在 extension 裡沒有意義；
+ * 而且 `React/RCTBridgeModule.h` 在 widget extension 的 header search path 裡不存在，
+ * 硬編進去會直接 build 失敗。
+ *
+ * `.m` 是 `RCT_EXTERN_MODULE` 的註冊墊片——那組巨集是 Objective-C 的，Swift 沒有
+ * 對應物。純 Swift 的替代路徑要動 AppDelegate，而 AppDelegate 是 prebuild 的產出物
+ * （規則①：`ios/` 是輸出不是輸入），改了會被下一次 prebuild 洗掉。
+ */
+const APP_ONLY_SOURCES = [
+  'EchoLiveActivityModule.swift',
+  'EchoLiveActivityModule.m',
+];
+
 const INFO_PLIST_FILE_NAME = 'Info.plist';
 
 /**
@@ -191,7 +208,10 @@ function getBuildPhase(project, targetUuid, comment) {
 }
 
 /**
- * 把一個 .swift 掛進 group，並讓它出現在 `targetUuids` 每一個 target 的 Sources phase。
+ * 把一個原始檔掛進 group，並讓它出現在 `targetUuids` 每一個 target 的 Sources phase。
+ *
+ * 副檔名決定 `lastKnownFileType`：**寫錯不會報錯**，Xcode 只會安靜地不編譯它，
+ * 然後在連結階段抱怨找不到符號——那個錯誤訊息完全指不回這一行。
  *
  * 一個 PBXFileReference（檔案本身）+ 每個 target 一個 PBXBuildFile（「這個 target 要編它」）。
  * 這就是 Xcode 在 UI 上勾選兩個 Target Membership 時寫進 pbxproj 的形狀。
@@ -199,6 +219,9 @@ function getBuildPhase(project, targetUuid, comment) {
 function addSwiftSource(project, { fileName, targetName, group, targetUuids }) {
   const fileRef = project.generateUuid();
   const basename = fileName;
+  const lastKnownFileType = fileName.endsWith('.m')
+    ? 'sourcecode.c.objc'
+    : 'sourcecode.swift';
   // group 本身沒有 path（`ensureGroupRecursively` 建出來的 path 是空的），
   // 所以檔案路徑要從 ios/ 算起，也就是要帶 `EchoWidget/` 這一段。
   const relativePath = `${targetName}/${fileName}`;
@@ -207,7 +230,7 @@ function addSwiftSource(project, { fileName, targetName, group, targetUuids }) {
     fileRef,
     basename,
     path: relativePath,
-    lastKnownFileType: 'sourcecode.swift',
+    lastKnownFileType,
     sourceTree: '"<group>"',
     fileEncoding: 4,
     includeInIndex: 0,
@@ -281,7 +304,12 @@ const withNativeSources = (config, { targetName, groupIdentifier }) =>
 
       const sourceDir = path.join(cfg.modRequest.projectRoot, 'targets', targetName);
       const destinationDir = path.join(cfg.modRequest.platformProjectRoot, targetName);
-      const expectedFiles = [...EXTENSION_ONLY_SOURCES, ...SHARED_SOURCES, INFO_PLIST_FILE_NAME];
+      const expectedFiles = [
+        ...EXTENSION_ONLY_SOURCES,
+        ...SHARED_SOURCES,
+        ...APP_ONLY_SOURCES,
+        INFO_PLIST_FILE_NAME,
+      ];
 
       const missing = expectedFiles.filter((name) => !fs.existsSync(path.join(sourceDir, name)));
       if (missing.length) {
@@ -425,6 +453,10 @@ const withEchoWidgetTarget = (config, options) =>
     // 4) 原始碼。三個共用檔同時進兩個 target——這是整個功能能不能運作的關鍵。
     EXTENSION_ONLY_SOURCES.forEach((fileName) => {
       addSwiftSource(project, { fileName, targetName, group, targetUuids: [target.uuid] });
+    });
+    // 只進主 app：起卡的原生模組 + 它的 ObjC 註冊墊片。
+    APP_ONLY_SOURCES.forEach((fileName) => {
+      addSwiftSource(project, { fileName, targetName, group, targetUuids: [appTarget.uuid] });
     });
     SHARED_SOURCES.forEach((fileName) => {
       addSwiftSource(project, {
@@ -573,3 +605,4 @@ module.exports.DEFAULT_TARGET_NAME = DEFAULT_TARGET_NAME;
 module.exports.DEFAULT_DEPLOYMENT_TARGET = DEFAULT_DEPLOYMENT_TARGET;
 module.exports.EXTENSION_ONLY_SOURCES = EXTENSION_ONLY_SOURCES;
 module.exports.SHARED_SOURCES = SHARED_SOURCES;
+module.exports.APP_ONLY_SOURCES = APP_ONLY_SOURCES;
