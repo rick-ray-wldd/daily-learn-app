@@ -1,13 +1,13 @@
 <title>You Already Told Us</title>
 <style>
   /* ───────────────────────────────────────────────────────────────
-     Echo — Demo Day booth poster, CHINESE edition. A2 (420 × 594 mm).
+     Echo — Demo Day booth poster, ENGLISH edition.  A2 (420×594 mm).
 
-     ⚠️ This <style> block is kept identical to the one in
-     `poster-pre-demo-day-en.html`. Tweak the visuals in one file,
-     paste into the other — `build-poster-pdf.sh` diffs them (ignoring
-     comments) and warns if they drift apart. Class names match on
-     purpose so a CSS edit transplants cleanly.
+     ⚠️ This <style> block is a VERBATIM COPY of the one in
+     `poster-pre-demo-day.html`. Tweak the visuals in one file, paste
+     into the other — `build-poster-pdf.sh` diffs them and warns if
+     they drift apart. Class names are identical on purpose so a CSS
+     edit transplants cleanly.
 
      Deliberately SINGLE-THEME. This is a print piece: it goes on
      paper or on a propped-up screen under room light, and a dark
@@ -113,7 +113,8 @@
     vertical-align: 0.22em;
   }
 
-  /* 破冰提問 —— 攤位巡禮學習單上印的四題，逐題作答 */
+  /* Icebreakers — the four questions printed on the booth passport,
+     answered one by one. */
   .icebreak { display: grid; gap: 0.68cqw; }
   .qa { display: grid; gap: 0.26cqw; }
   .qa .q {
@@ -327,22 +328,23 @@
   <!-- 1 ─ masthead ────────────────────────────────────────── -->
   <header class="masthead">
     <div class="brandline">
-      <div class="wordmark">Echo<span>.</span> <b class="booth">攤位 08</b></div>
+      <div class="wordmark">Echo<span>.</span> <b class="booth">BOOTH 08</b></div>
       <div class="eyebrow">Demo Day 2026 · Aug 17 · Startup Island Taiwan — Silicon Valley Hub</div>
     </div>
 
     <h1>You already told us what you didn&rsquo;t understand.</h1>
 
     <p class="kicker-zh">
-      學英文的人每天按幾十次返回鍵，而<b>沒有任何一個 app 在記錄那一下</b>。
-      Echo 把它接住：不問問題、不打斷聆聽，只是把你重聽的那三十秒留下來，隔天再拿回來給你。
+      English learners hit rewind dozens of times a day, and <b>no app records
+      that tap</b>. Echo keeps the thirty seconds you replayed — no questions,
+      no interruption — and hands them back tomorrow.
     </p>
   </header>
 
   <!-- 2 ─ the instrument ─────────────────────────────────── -->
   <section class="instrument">
     <svg viewBox="0 0 1000 176" role="img"
-         aria-label="音訊時間軸：學習者在 5:37 按下往回 15 秒，系統把 5:07 至 5:37 存成一個難點窗口。">
+         aria-label="Audio timeline: the listener hits back-15 at 5:37, and the system stores 5:07–5:37 as one difficulty window.">
       <defs>
         <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5"
                 markerWidth="7" markerHeight="7" orient="auto-start-reverse">
@@ -387,7 +389,7 @@
 
       <text x="770" y="60" text-anchor="start"
             font-family="ui-monospace, 'SF Mono', Menlo, monospace"
-            font-size="16" fill="#46514F">他在這裡按了返回鍵</text>
+            font-size="16" fill="#46514F">he hit rewind here</text>
 
       <text x="487" y="112" text-anchor="middle"
             font-family="ui-monospace, 'SF Mono', Menlo, monospace"
@@ -396,38 +398,38 @@
     </svg>
 
     <div class="instrument-legend">
-      <div><span class="swatch track"></span><span>播放中的單集。學習者<b>沒有做任何額外的事</b>。</span></div>
-      <div><span class="swatch sig"></span><span>難點窗口 <code>[T−15, T]</code>——留下來的三十秒。</span></div>
-      <div><span class="swatch guess"></span><span>前後各 +6 秒的重播 context。</span></div>
+      <div><span class="swatch track"></span><span>Playing. The learner <b>does nothing extra</b>.</span></div>
+      <div><span class="swatch sig"></span><span>Window <code>[T−15, T]</code> — the thirty seconds we keep.</span></div>
+      <div><span class="swatch guess"></span><span>+6 s context each side.</span></div>
     </div>
   </section>
 
   <!-- 3 ─ pipeline ───────────────────────────────────────── -->
   <section class="pipeline">
     <div class="step">
-      <div class="step-n">01 / 聽的當下</div>
-      <div class="step-t">接住那一下</div>
-      <div class="step-d">往回鍵、控制中心、鎖定畫面都算。3 秒內連按算同一個訊號。</div>
+      <div class="step-n">01 / AS IT HAPPENS</div>
+      <div class="step-t">Catch the tap</div>
+      <div class="step-d">Back button, Control Center, lock screen — all count. Taps within 3 s are one signal.</div>
     </div>
     <div class="step">
-      <div class="step-n">02 / 幾秒後</div>
-      <div class="step-t">只轉錄這一段</div>
-      <div class="step-d">窗口化 ASR——不是整集。省成本，也省等待。</div>
+      <div class="step-n">02 / SECONDS LATER</div>
+      <div class="step-t">Transcribe just this</div>
+      <div class="step-d">Windowed ASR — not the whole episode. Saves cost, and saves waiting.</div>
     </div>
     <div class="step">
-      <div class="step-n">03 / 當晚</div>
-      <div class="step-t">診斷難在哪</div>
-      <div class="step-d">連音 / 生字 / 句型 / 語速 / 文化 / 切分，六類擇一。</div>
+      <div class="step-n">03 / THAT EVENING</div>
+      <div class="step-t">Diagnose the break</div>
+      <div class="step-d">Linking, vocabulary, syntax, speed, culture, segmentation — one of six.</div>
     </div>
     <div class="step">
-      <div class="step-n">04 / 隔天</div>
-      <div class="step-t">漸進揭露</div>
-      <div class="step-d">線索 → 骨架 → 全文。遮罩帶著原句的形狀。</div>
+      <div class="step-n">04 / NEXT MORNING</div>
+      <div class="step-t">Reveal in stages</div>
+      <div class="step-d">Clue → skeleton → full text. The mask keeps the sentence&rsquo;s shape.</div>
     </div>
     <div class="step">
-      <div class="step-n">05 / 之後</div>
-      <div class="step-t">在它要忘之前</div>
-      <div class="step-d">間隔重複排程；每次評分都留下 review log。</div>
+      <div class="step-n">05 / AFTER THAT</div>
+      <div class="step-t">Before he forgets</div>
+      <div class="step-d">Spaced repetition; every grade leaves a review log behind.</div>
     </div>
   </section>
 
@@ -435,36 +437,36 @@
   <section class="columns">
 
     <div class="col">
-      <h2>憑什麼相信「返回鍵」是好訊號</h2>
+      <h2>Why the rewind button is a good signal</h2>
 
       <div class="evidence">
         <div class="ev">
           <div class="ev-num">3.06<small>ODDS RATIO</small></div>
-          <div class="ev-txt"><b>自發</b>注意到自己詞彙有洞的人，學會那個詞的勝算是沒注意到的人的 3.06 倍。</div>
+          <div class="ev-txt">Learners who <b>spontaneously</b> noticed a vocabulary hole were 3.06× as likely to learn that word.</div>
         </div>
         <div class="ev">
           <div class="ev-num">4.57<small>ODDS RATIO</small></div>
-          <div class="ev-txt">被<b>要求</b>出聲、因而注意到缺口的人，4.57 倍。</div>
+          <div class="ev-txt">Learners <b>prompted</b> to speak, and who noticed the gap that way: 4.57×.</div>
         </div>
         <div class="ev">
-          <div class="ev-num">n.s.<small>兩者之差</small></div>
-          <div class="ev-txt">而這兩組之間<b>沒有顯著差異</b>——強迫他做動作，並不比他自己注意到更有效。</div>
+          <div class="ev-num">n.s.<small>BETWEEN THE TWO</small></div>
+          <div class="ev-txt">The two groups <b>did not differ significantly</b> — forcing the action beats noticing on your own by nothing.</div>
         </div>
       </div>
 
       <div class="punch">
-        真正起作用的是<b>「意識到自己有洞」</b>，不是「做了什麼動作」。<br>
-        而按返回鍵，就是那個意識發生的瞬間。<b>所以我們不必打斷他。</b>
+        What does the work is <b>realising you have a gap</b> — not the action.<br>
+        Hitting rewind <i>is</i> that moment. <b>So we never interrupt.</b>
       </div>
 
       <div class="evidence">
         <div class="ev">
-          <div class="ev-num">34–38%<small>變異解釋</small></div>
-          <div class="ev-txt">聽覺詞彙量 + <b>詞界切分能力</b>合起來解釋的聽力成績變異。切錯一個詞界，後面整串話跟著崩。</div>
+          <div class="ev-num">34–38%<small>VARIANCE EXPLAINED</small></div>
+          <div class="ev-txt">Aural vocabulary + <b>lexical segmentation</b> explain this much of L2 listening scores. Miss one boundary, the sentence collapses.</div>
         </div>
         <div class="ev">
-          <div class="ev-num">0<small>競品在收</small></div>
-          <div class="ev-txt">沒有任何 app 在收集「學習者連詞界都切不出來的位置」。<b>閱讀 app 永遠看不到它——文字裡沒有連音。</b></div>
+          <div class="ev-num">0<small>RIVALS COLLECTING IT</small></div>
+          <div class="ev-txt">No app collects <i>where a learner can&rsquo;t even find the word boundaries</i>. <b>Reading apps never see it — text has no connected speech.</b></div>
         </div>
       </div>
 
@@ -476,50 +478,50 @@
     </div>
 
     <div class="col">
-      <h2>現在跑得動的</h2>
+      <h2>Working today</h2>
       <div class="now">
-        <div class="row"><span class="mark on">✓</span><span><b>端到端閉環</b>：倒帶 → 逐字稿 → 診斷 → 練習 → 排程，全自動</span></div>
-        <div class="row"><span class="mark on">✓</span><span><b>鎖定畫面的倒帶也接得到</b>（螢幕關著按的往回鍵）</span></div>
-        <div class="row"><span class="mark on">✓</span><span><b>兩點框選</b>＋「<b>我聽不出這裡有幾個字</b>」切分出口</span></div>
-        <div class="row"><span class="mark on">✓</span><span><b>難度帶 1–5</b>：量出來的與猜的，畫得不一樣</span></div>
+        <div class="row"><span class="mark on">✓</span><span><b>End-to-end loop</b>, fully automatic — rewind to scheduled practice</span></div>
+        <div class="row"><span class="mark on">✓</span><span><b>Lock-screen rewinds count too</b> — pressed with the screen off</span></div>
+        <div class="row"><span class="mark on">✓</span><span><b>Two-tap selection</b> + a <b>&ldquo;how many words?&rdquo;</b> escape hatch</span></div>
+        <div class="row"><span class="mark on">✓</span><span><b>Difficulty bands 1–5</b> — measured and guessed are drawn differently</span></div>
       </div>
 
-      <h2>你手上那張學習單的四題</h2>
+      <h2>The four questions on your passport</h2>
       <div class="icebreak">
         <div class="qa">
-          <div class="q">Q · 想解決什麼問題？做到哪一步？</div>
-          <div class="a">語言 app 教的是<b>它的課綱</b>，不是你真正漏接的英語。
-            上面那條管線<b>已經全自動跑通</b>——但只在我自己身上（N=1，第 5 週）。</div>
+          <div class="q">Q · What problem, and how far along?</div>
+          <div class="a">Apps teach <b>their syllabus</b>, not the English you miss. The pipeline above
+            <b>runs end to end</b> — so far only on me (N=1, week 5).</div>
         </div>
         <div class="qa">
-          <div class="q">Q · 第一批使用者是誰？為什麼願意付費？</div>
-          <div class="a"><b>在美的非母語留學生與早期職場工作者</b>——已經在用英語生活卻仍聽不全，
-            痛得最深、付費意願最高。<b>我就在他們中間。</b></div>
+          <div class="q">Q · Who pays first, and why?</div>
+          <div class="a"><b>Non-native students and early-career professionals in the US</b> — living in
+            English, still missing half of it. <b>I am one of them.</b></div>
         </div>
         <div class="qa">
-          <div class="q">Q · 來矽谷最想拿到什麼？</div>
-          <div class="a">一位<b>語音／ML 共同創辦人</b>，以及<b>10 個願意連續用 7 天的人</b>。</div>
+          <div class="q">Q · What do you want from Silicon Valley?</div>
+          <div class="a">A <b>speech/ML co-founder</b>, and <b>ten people who&rsquo;ll use it seven days straight</b>.</div>
         </div>
         <div class="qa">
-          <div class="q">Q · 接下來三個月最重要的里程碑？</div>
-          <div class="a"><b>隔天回來率。</b>他昨天倒帶的東西，明天願不願意打開來練——
-            這一個數字決定這個產品成不成立，其他都是裝飾。</div>
+          <div class="q">Q · Biggest milestone in three months?</div>
+          <div class="a"><b>Next-day return rate.</b> Will he come back tomorrow to practise
+            what he rewound today? That number decides whether this exists.</div>
         </div>
       </div>
 
-      <h2>接下來</h2>
+      <h2>What&rsquo;s next</h2>
       <div class="next-list">
         <div class="nx">
-          <div class="nx-t">鎖屏／動態島選擇題 <em>W7</em></div>
-          <div class="nx-d">難點常駐在鎖定畫面，三選一，按了就換下一題——不必打開 app。</div>
+          <div class="nx-t">Lock screen &amp; Dynamic Island quiz <em>W7</em></div>
+          <div class="nx-d">Three choices on the lock screen. Tap one, the next appears — the app never opens.</div>
         </div>
         <div class="nx">
-          <div class="nx-t">情境提醒 <em>W8</em></div>
-          <div class="nx-d">你走到藥局門口，才把你上週在 podcast 裡卡住的那個藥名還給你。</div>
+          <div class="nx-t">Situated reminders <em>W8</em></div>
+          <div class="nx-d">At the pharmacy door, we hand back the drug name you stalled on last week.</div>
         </div>
         <div class="nx">
-          <div class="nx-t">耳機真實生活模式 <em>Q4</em></div>
-          <div class="nx-d">聽不懂真人講話時捏一下 AirPods——同一個訊號，離開 podcast。</div>
+          <div class="nx-t">Real-life mode, in your earbuds <em>Q4</em></div>
+          <div class="nx-d">Pinch your AirPods when you miss a real person. Same signal, off the podcast.</div>
         </div>
       </div>
     </div>
@@ -528,13 +530,13 @@
   <!-- 5 ─ footer ─────────────────────────────────────────── -->
   <footer class="footer">
     <div class="status">
-      現況（2026.08.14 直接查線上資料庫得到，不是估計）<br>
-      <b>captures 15</b> · <b>replay_events 22</b>（其中鎖屏 3，跳幅 10.0–10.1 s）<br>
-      真實使用者 <b>1</b>：創辦人本人，dogfooding 第 5 週。<b>管線通了 ≠ 產品有用</b>，我知道差別。
+      STATUS · live database, 2026.08.14 — measured, not estimated<br>
+      <b>captures 15</b> · <b>replay_events 22</b> (3 lock-screen, 10.0–10.1 s) · real users <b>1</b><br>
+      The founder, week 5. <b>A working pipeline ≠ a useful product.</b>
     </div>
     <div class="ask">
-      我要找的是十個願意連續用七天的人。
-      <span>蔡秉叡 Ray Tsai · NTU CSIE · 找我聊，或直接借你的手機試一集。</span>
+      Looking for ten people who&rsquo;ll use it seven days straight.
+      <span>Ray Tsai 蔡秉叡 · NTU CSIE · Borrow my phone for one episode.</span>
     </div>
   </footer>
 
