@@ -1,0 +1,437 @@
+<title>Echo Demo Day Deck</title>
+<style>
+  /* ───────────────────────────────────────────────────────────────
+     Echo — Demo Day 2026 · 5-minute deck · 10 slides · 16:9
+
+     Same visual system as the booth poster (design/poster-pre-demo-day.html):
+     paper ground, semantic hues carried from the app's theme.ts,
+     mono for instrument data. A deck and a poster that look like the
+     same object read as one company, not two documents.
+
+     Single-theme on purpose: this gets exported to PDF and thrown at
+     an unknown projector. Every colour is painted explicitly.
+
+     PRINT / EXPORT: ⌘P → Destination "Save as PDF" → Paper "Manage
+     custom sizes" 338.67 × 190.5 mm (= Google Slides 16:9) → Margins
+     None → Background graphics ON.
+     ─────────────────────────────────────────────────────────────── */
+
+  :root {
+    --paper:   #F3F6F4;
+    --panel:   #E7ECE9;
+    --ink:     #14191B;
+    --ink-mid: #46514F;
+    --ink-dim: #77827F;
+    --rule:    #C3CCC8;
+
+    --signal:  #0B7A46;   /* learner acted */
+    --signal-soft: #D2E7DC;
+    --guess:   #A96B12;   /* app is guessing */
+    --guess-soft:  #F0E4CC;
+    --track:   #3E5261;   /* neutral chrome */
+
+    --display: -apple-system, BlinkMacSystemFont, "Helvetica Neue", "Segoe UI", sans-serif;
+    --body:    -apple-system, BlinkMacSystemFont, "PingFang TC", "Noto Sans TC",
+               "Microsoft JhengHei", "Helvetica Neue", sans-serif;
+    --mono:    ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: #D6DCD9;
+    color: var(--ink);
+    font-family: var(--body);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 18px;
+    padding: 18px;
+  }
+
+  .slide {
+    width: min(338.67mm, 100%);
+    aspect-ratio: 338.67 / 190.5;
+    container-type: inline-size;
+    background: var(--paper);
+    color: var(--ink);
+    padding: 5.4cqw 6cqw;
+    display: grid;
+    grid-template-rows: auto 1fr auto;
+    gap: 2.4cqw;
+    box-shadow: 0 2px 18px rgba(20,25,27,0.18);
+    overflow: hidden;
+  }
+
+  /* ── chrome ──────────────────────────────────────────────── */
+  .top {
+    display: flex; justify-content: space-between; align-items: baseline;
+    gap: 2cqw;
+    border-bottom: 1px solid var(--rule); padding-bottom: 1.1cqw;
+  }
+  .eyebrow {
+    font-family: var(--mono); font-size: 1.08cqw; letter-spacing: 0.16em;
+    text-transform: uppercase; color: var(--ink-dim);
+  }
+  .clock { font-family: var(--mono); font-size: 1.08cqw; color: var(--signal); letter-spacing: 0.1em; }
+
+  .bot {
+    display: flex; justify-content: space-between; align-items: baseline;
+    font-family: var(--mono); font-size: 0.94cqw; color: var(--ink-dim);
+    letter-spacing: 0.08em; border-top: 1px solid var(--rule); padding-top: 0.9cqw;
+  }
+
+  .body { display: grid; align-content: center; gap: 1.8cqw; }
+
+  h2 {
+    font-family: var(--display); font-size: 4.4cqw; font-weight: 800;
+    letter-spacing: -0.032em; line-height: 1.02; margin: 0; text-wrap: balance;
+  }
+  h2 em { font-style: normal; color: var(--signal); }
+  .sub { font-size: 1.62cqw; line-height: 1.5; color: var(--ink-mid); max-width: 60ch; margin: 0; }
+  .sub b { color: var(--ink); font-weight: 600; }
+
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 3.4cqw; align-items: start; }
+  .three { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2.6cqw; align-items: start; }
+  .stack { display: grid; gap: 1.1cqw; align-content: start; }
+
+  .lab {
+    font-family: var(--mono); font-size: 1cqw; letter-spacing: 0.14em;
+    text-transform: uppercase; color: var(--ink-dim);
+    border-bottom: 2px solid var(--ink); padding-bottom: 0.5cqw;
+  }
+  .lab.g { border-bottom-color: var(--signal); color: var(--signal); }
+  .lab.a { border-bottom-color: var(--guess);  color: var(--guess); }
+
+  p.t { font-size: 1.42cqw; line-height: 1.5; color: var(--ink-mid); margin: 0; }
+  p.t b { color: var(--ink); font-weight: 600; }
+
+  ul { margin: 0; padding-left: 1.5em; display: grid; gap: 0.7cqw; }
+  li { font-size: 1.42cqw; line-height: 1.45; color: var(--ink-mid); }
+  li b { color: var(--ink); font-weight: 600; }
+
+  .big { font-family: var(--mono); font-size: 4.2cqw; font-weight: 600;
+         letter-spacing: -0.03em; color: var(--signal); font-variant-numeric: tabular-nums; line-height: 1; }
+  .big.a { color: var(--guess); }
+  .big.n { color: var(--ink); }
+  .cap { font-size: 1.24cqw; line-height: 1.4; color: var(--ink-mid); }
+  .cap b { color: var(--ink); font-weight: 600; }
+
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 0.85cqw 1cqw 0.85cqw 0; border-bottom: 1px solid var(--rule);
+           font-size: 1.28cqw; line-height: 1.35; vertical-align: top; }
+  th { font-family: var(--mono); font-size: 0.98cqw; letter-spacing: 0.1em; text-transform: uppercase;
+       color: var(--ink-dim); border-bottom-color: var(--ink); }
+  td b { color: var(--ink); font-weight: 600; }
+  td { color: var(--ink-mid); }
+  tr.me td { background: var(--signal-soft); color: var(--ink); font-weight: 600; }
+  tr.me td:first-child { box-shadow: inset 3px 0 0 var(--signal); padding-left: 1cqw; }
+
+  .box { background: var(--panel); border: 1px solid var(--rule); padding: 1.8cqw 2cqw; display: grid; gap: 0.8cqw; }
+  .box.g { background: var(--signal-soft); border-color: var(--signal); }
+  .box.a { background: var(--guess-soft);  border-color: var(--guess); }
+
+  .punch { background: var(--signal); color: #F3F6F4; padding: 2cqw 2.4cqw;
+           font-size: 2.05cqw; line-height: 1.4; font-weight: 500; }
+  .punch b { font-weight: 800; }
+
+  .funnel { display: grid; gap: 0.9cqw; }
+  .fr { display: grid; grid-template-columns: 7cqw 1fr; gap: 1.4cqw; align-items: baseline; }
+  .fr .n { font-family: var(--mono); font-size: 2.05cqw; font-weight: 600; color: var(--signal);
+           text-align: right; font-variant-numeric: tabular-nums; }
+  .fr .d { font-size: 1.3cqw; line-height: 1.4; color: var(--ink-mid); }
+  .fr .d b { color: var(--ink); font-weight: 600; }
+
+  @page { size: 338.67mm 190.5mm; margin: 0; }
+  @media print {
+    body { background: #fff; padding: 0; gap: 0; display: block; }
+    .slide { width: 338.67mm; height: 190.5mm; aspect-ratio: auto; box-shadow: none;
+             page-break-after: always; break-after: page;
+             -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .slide:last-child { page-break-after: auto; break-after: auto; }
+  }
+</style>
+
+<!-- ═══ 1 · TITLE ═══════════════════════════════════════════ -->
+<section class="slide">
+  <div class="top">
+    <div class="eyebrow">Demo Day 2026 · Startup Island Taiwan — Silicon Valley Hub</div>
+    <div class="clock">BOOTH 08</div>
+  </div>
+  <div class="body">
+    <h2>You already told us<br>what you didn&rsquo;t <em>understand.</em></h2>
+    <p class="sub">
+      <b>Echo</b> —— 學英文的人每天按幾十次返回鍵，而沒有任何一個 app 在記錄那一下。<br>
+      我們把它接住：不問問題、不打斷聆聽，隔天再把那三十秒還給你。
+    </p>
+  </div>
+  <div class="bot"><span>蔡秉叡 Ray Tsai · NTU CSIE · Solo founder</span><span>0:00 / 5:00</span></div>
+</section>
+
+<!-- ═══ 2 · PROBLEM ═════════════════════════════════════════ -->
+<section class="slide">
+  <div class="top"><div class="eyebrow">01 — Problem &amp; Pain Point</div><div class="clock">0:20</div></div>
+  <div class="body">
+    <h2>語言 app 的個人化<br>是<em>假的</em>。</h2>
+    <div class="two">
+      <div class="stack">
+        <div class="lab">痛點真實性</div>
+        <p class="t">它們教的是<b>它的課綱</b>，不是你生活中真正漏接的英語。
+          我學了十幾年英文，聽 native podcast 還是漏掉一半——在座的非母語者都懂這件事。</p>
+        <p class="t">現有解法（Anki、生字本）要求你<b>主動標記</b>。
+          那個動作是額外成本，所以絕大多數人做兩天就停了。</p>
+      </div>
+      <div class="stack">
+        <div class="lab a">痛點規模</div>
+        <p class="t">全球約 <b>15 億</b>人在學英語。而其中最痛、付費意願最高的一群，
+          就是<b>已經在用英語生活</b>卻仍然聽不全的人——留學生、外派工作者、遠端協作的工程師。</p>
+        <div class="box a">
+          <p class="t"><b>我自己就是這個人。</b>這六週我在灣區，每天都在經歷這個問題。</p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="bot"><span>ECHO · BOOTH 08</span><span>2 / 10</span></div>
+</section>
+
+<!-- ═══ 3 · INSIGHT ═════════════════════════════════════════ -->
+<section class="slide">
+  <div class="top"><div class="eyebrow">02 — The Insight</div><div class="clock">0:50</div></div>
+  <div class="body">
+    <div class="punch">
+      每一次按下返回鍵重聽，<b>就是一次誠實的自白</b>。<br>
+      使用者已經每天在產生這個訊號——只是沒有人把它接住。
+    </div>
+    <div class="three">
+      <div class="stack">
+        <div class="lab g">零摩擦</div>
+        <p class="t">他不必決定「我要學這個」。<b>返回鍵本來就會按。</b></p>
+      </div>
+      <div class="stack">
+        <div class="lab g">不打斷</div>
+        <p class="t">聽的當下什麼都不問。所有需要判斷的事<b>一律延到隔天</b>。</p>
+      </div>
+      <div class="stack">
+        <div class="lab g">是資料，不是功能</div>
+        <p class="t">它長出一張<b>個人英語難點圖譜</b>——別人抄得走功能，抄不走這個。</p>
+      </div>
+    </div>
+  </div>
+  <div class="bot"><span>ECHO · BOOTH 08</span><span>3 / 10</span></div>
+</section>
+
+<!-- ═══ 4 · HOW IT WORKS ════════════════════════════════════ -->
+<section class="slide">
+  <div class="top"><div class="eyebrow">03 — Solution: 一條全自動的管線</div><div class="clock">1:10</div></div>
+  <div class="body">
+    <svg viewBox="0 0 1000 132" role="img"
+         aria-label="時間軸：學習者在 5:37 按下往回 15 秒，系統把 5:07 到 5:37 存成難點窗口。">
+      <defs><marker id="a" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7"
+        orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#0B7A46"/></marker></defs>
+      <rect x="252" y="70" width="470" height="34" fill="#D2E7DC" stroke="#0B7A46" stroke-width="1.5"/>
+      <rect x="158" y="77" width="94" height="20" fill="#F0E4CC"/>
+      <rect x="722" y="77" width="94" height="20" fill="#F0E4CC"/>
+      <line x1="40" y1="87" x2="960" y2="87" stroke="#3E5261" stroke-width="2.5"/>
+      <g stroke="#3E5261" stroke-width="1.5">
+        <line x1="252" y1="106" x2="252" y2="118"/><line x1="722" y1="106" x2="722" y2="118"/>
+      </g>
+      <g font-family="ui-monospace, Menlo, monospace" font-size="15" fill="#46514F" text-anchor="middle">
+        <text x="252" y="132">5:07</text><text x="722" y="132">5:37</text>
+      </g>
+      <path d="M722,58 C 690,10 300,10 252,56" fill="none" stroke="#0B7A46" stroke-width="3.5" marker-end="url(#a)"/>
+      <circle cx="722" cy="87" r="7" fill="#0B7A46"/>
+      <text x="487" y="30" text-anchor="middle" font-family="-apple-system, sans-serif"
+            font-size="25" font-weight="700" fill="#0B7A46">↺ 15s</text>
+      <text x="487" y="93" text-anchor="middle" font-family="ui-monospace, Menlo, monospace"
+            font-size="15" font-weight="600" fill="#0B7A46" letter-spacing="1">CAPTURE WINDOW</text>
+    </svg>
+    <table>
+      <tr><th style="width:14%">聽的當下</th><th style="width:16%">幾秒後</th><th style="width:16%">當晚</th><th style="width:18%">隔天</th><th>之後</th></tr>
+      <tr>
+        <td><b>接住那一下</b><br>往回鍵、控制中心、鎖屏都算</td>
+        <td><b>只轉錄這一段</b><br>窗口化 ASR，不是整集</td>
+        <td><b>診斷難在哪</b><br>連音／生字／句型／語速／文化／切分</td>
+        <td><b>漸進揭露</b><br>線索 → 骨架 → 全文，遮罩帶著原句形狀</td>
+        <td><b>在他要忘之前再問一次</b><br>間隔重複排程</td>
+      </tr>
+    </table>
+    <p class="t" style="text-align:center"><b>從他按下返回鍵到隔天被問，全程自動。他沒有做任何額外的事。</b></p>
+  </div>
+  <div class="bot"><span>ECHO · BOOTH 08</span><span>4 / 10</span></div>
+</section>
+
+<!-- ═══ 5 · DEMO ════════════════════════════════════════════ -->
+<section class="slide">
+  <div class="top"><div class="eyebrow">04 — Demo（實機／影片 60 秒）</div><div class="clock">1:40</div></div>
+  <div class="body">
+    <h2>現在，我按一下<em>返回鍵</em>。</h2>
+    <div class="two">
+      <div class="funnel">
+        <div class="fr"><div class="n">1</div><div class="d">聽 podcast，一句沒聽懂 → <b>按 ↺15</b>。畫面上什麼都沒發生</div></div>
+        <div class="fr"><div class="n">2</div><div class="d">切到練習分頁 → <b>⚡ 搶先練（1）</b>：那三十秒自己跑進來了</div></div>
+        <div class="fr"><div class="n">3</div><div class="d">句子是<b>遮住</b>的，但遮罩帶著原句的形狀——長度、節奏都在</div></div>
+        <div class="fr"><div class="n">4</div><div class="d">先聽，再決定：<b>「真的沒聽懂」還是「只是分心」</b></div></div>
+        <div class="fr"><div class="n">5</div><div class="d">三段揭露：線索 → 骨架 → 全文</div></div>
+      </div>
+      <div class="box g">
+        <div class="lab g">為什麼線索是「前一句」</div>
+        <p class="t">聽力理解是往前推進的。<b>前一句是他已經聽懂的那一句</b>，
+          拿它當支點才叫線索；給後一句等於先看結局。</p>
+        <div class="lab g" style="margin-top:0.6cqw">為什麼遮罩要有形狀</div>
+        <p class="t">他看得到句子多長、哪個字特別長、節奏是什麼，卻讀不到內容——
+          <b>而形狀正是聽力重建句子時真正用得上的線索</b>。</p>
+      </div>
+    </div>
+  </div>
+  <div class="bot"><span>ECHO · BOOTH 08</span><span>5 / 10</span></div>
+</section>
+
+<!-- ═══ 6 · WHY NOW + MOAT ══════════════════════════════════ -->
+<section class="slide">
+  <div class="top"><div class="eyebrow">05 — Why Now &amp; Moat（進入門檻）</div><div class="clock">2:40</div></div>
+  <div class="body">
+    <div class="two">
+      <div class="stack">
+        <div class="lab">Why now</div>
+        <ul>
+          <li>ASR 成本兩年降一個數量級，<b>窗口化轉錄</b>讓單位成本降到可行</li>
+          <li>LLM 才剛能回答「<b>他為什麼沒聽懂</b>」，而不只是「這句話是什麼」</li>
+          <li>藍牙耳機 = <b>已經部署的十億個感測器</b>，手勢可程式化</li>
+          <li>AR 眼鏡的 ambient 助理浪潮剛起——<b>同一個訊號，換一個載體</b></li>
+        </ul>
+      </div>
+      <div class="stack">
+        <div class="lab g">Moat：不是功能，是資料</div>
+        <p class="t">三根支柱各自都有人做了。<b>護城河在輸入層</b>——
+          從真實聆聽擷取難點，這一段沒有人在收。</p>
+        <div class="box g">
+          <p class="t">功能可以抄。<b>你按了三個月返回鍵長出來的個人難點圖譜抄不走。</b></p>
+        </div>
+        <p class="t">而且要抄得先<b>重寫播放器</b>——只有自己的播放器拿得到那個事件。
+          這就是我們不做網頁、自己寫播放器的原因。</p>
+      </div>
+    </div>
+  </div>
+  <div class="bot"><span>ECHO · BOOTH 08</span><span>6 / 10</span></div>
+</section>
+
+<!-- ═══ 7 · MARKET ══════════════════════════════════════════ -->
+<section class="slide">
+  <div class="top"><div class="eyebrow">06 — Market Size（估算，方法附上）</div><div class="clock">3:10</div></div>
+  <div class="body">
+    <div class="three">
+      <div class="stack">
+        <div class="lab">TAM</div>
+        <div class="big n">$15–20B</div>
+        <p class="cap">全球<b>數位語言學習</b>市場（產業估計值）。全球約 15 億英語學習者。</p>
+      </div>
+      <div class="stack">
+        <div class="lab">SAM</div>
+        <div class="big a">$3–4B</div>
+        <p class="cap">其中<b>英語 × 以聽力／口說為目標</b>的自學者。
+          取英語佔比約 50% × 聽說導向約 40%。</p>
+      </div>
+      <div class="stack">
+        <div class="lab g">SOM（3 年）</div>
+        <div class="big">$16M ARR</div>
+        <p class="cap"><b>由下而上</b>算的灘頭堡，假設全部列在右邊。</p>
+      </div>
+    </div>
+    <div class="box">
+      <div class="lab" style="border:0;padding:0">SOM 的算法 —— 每一個假設都可以被質疑，這是重點</div>
+      <p class="t">
+        在美非母語英語留學生與早期職場工作者 <b>≈ 150 萬</b>（國際學生約 110 萬 + 工作簽證存量）
+        &nbsp;×&nbsp; 已在聽英語 podcast <b>30%</b> = 45 萬
+        &nbsp;×&nbsp; 願為英語學習付費 <b>20%</b> = 9 萬人
+        &nbsp;×&nbsp; ARPU <b>$15/月</b>（對標 Speak／ELSA 的 $15–25）
+        &nbsp;=&nbsp; <b>約 $16M ARR</b>
+      </p>
+      <p class="cap">灘頭堡選在這裡，是因為這群人<b>痛得最深、付費意願最高、而且我就在他們中間</b>。</p>
+    </div>
+  </div>
+  <div class="bot"><span>ECHO · BOOTH 08</span><span>7 / 10</span></div>
+</section>
+
+<!-- ═══ 8 · COMPETITION ═════════════════════════════════════ -->
+<section class="slide">
+  <div class="top"><div class="eyebrow">07 — 競爭差異化（我不假裝這裡是空的）</div><div class="clock">3:35</div></div>
+  <div class="body">
+    <table>
+      <tr><th style="width:22%">對手</th><th style="width:39%">他們有什麼</th><th>他們缺什麼</th></tr>
+      <tr><td><b>Snipd</b>　最接近</td><td>耳機三擊擷取 podcast 片段、ASR ＋ LLM 摘要</td><td>服務知識管理，<b>完全沒有語言診斷／發音層</b></td></tr>
+      <tr><td><b>Duolingo</b>　Video Call</td><td>AI 即時口說對話與回饋，巨頭主場</td><td>課綱驅動，<b>沒有被動聆聽訊號</b></td></tr>
+      <tr><td><b>Speak</b>　$1B 估值</td><td>語音優先 AI 家教，驗證了高 ARPU 訂閱</td><td>練的是它出的題，<b>不是你真實漏接的內容</b></td></tr>
+      <tr><td><b>YourBestAccent</b> 等</td><td>克隆自己的聲音練發音（golden speaker）</td><td>沒有真實生活輸入、<b>沒有診斷閉環</b></td></tr>
+      <tr><td><b>Meta Ray-Ban</b></td><td>穿戴式即時翻譯，硬體已大眾出貨</td><td>做<b>翻譯</b>不做<b>學習</b>——這是 Phase 3 的最大風險</td></tr>
+      <tr class="me"><td>Echo</td><td>真實聆聽的 rewind 訊號 → 診斷為何聽不懂 → 練習閉環</td><td>三塊分開都有人做，<b>沒有人把它們接起來</b></td></tr>
+    </table>
+    <p class="cap">⚠️ 我<b>不會</b>宣稱語音克隆或 AI 口說診斷是我的獨家——那兩塊是紅海，
+      而且自聲練發音的效果證據是混合的。<b>我的賭注只有一個：輸入層。</b></p>
+  </div>
+  <div class="bot"><span>ECHO · BOOTH 08</span><span>8 / 10</span></div>
+</section>
+
+<!-- ═══ 9 · BUSINESS MODEL + MILESTONES ═════════════════════ -->
+<section class="slide">
+  <div class="top"><div class="eyebrow">08 — 營利模式 &amp; 里程碑</div><div class="clock">4:05</div></div>
+  <div class="body">
+    <div class="two">
+      <div class="stack">
+        <div class="lab">怎麼賺錢</div>
+        <p class="t"><b>訂閱制</b>，$15/月。免費層：擷取與逐字稿無限；
+          付費層：診斷、練習卡、間隔重複、自聲跟讀。</p>
+        <p class="t">成本結構的關鍵是<b>窗口化轉錄</b>——只轉他重聽的那三十秒，不轉整集。
+          標註一個 10 分鐘窗口約 <b>$0.005</b>。</p>
+        <div class="box a">
+          <p class="t"><b>但現在講定價是空的。</b>我連留存都還沒量到。
+            要先證明的是<b>隔天回來率</b>：他昨天倒帶的東西，明天願不願意打開來練。</p>
+        </div>
+      </div>
+      <div class="stack">
+        <div class="lab g">5 週做到的（可查證）</div>
+        <ul>
+          <li><b>端到端閉環跑通</b>：倒帶 → 逐字稿 → 診斷 → 練習 → 排程，全自動</li>
+          <li><b>鎖定畫面的倒帶也接得到</b>：實測 3 筆，跳幅 10.0–10.1 秒，與系統硬編碼間隔吻合</li>
+          <li><b>27 份架構決策紀錄</b>，每個取捨都留下理由與代價</li>
+          <li>14 個相依套件，改一行 JS <b>60 秒送到手機上</b>，不必重新送審</li>
+        </ul>
+        <p class="cap"><b>真實使用者：1 位（我自己，dogfooding 第 5 週）。</b>
+          管線通了 ≠ 產品有用，我知道這中間的差別——所以下一頁是我今晚要的東西。</p>
+      </div>
+    </div>
+  </div>
+  <div class="bot"><span>ECHO · BOOTH 08</span><span>9 / 10</span></div>
+</section>
+
+<!-- ═══ 10 · TEAM + ASK ═════════════════════════════════════ -->
+<section class="slide">
+  <div class="top"><div class="eyebrow">09 — Team &amp; Ask</div><div class="clock">4:30</div></div>
+  <div class="body">
+    <div class="two">
+      <div class="stack">
+        <div class="lab">團隊：現在是我一個人</div>
+        <p class="t"><b>我是目標用戶本人</b>——非母語者、在灣區、每天被這個問題打到。
+          NTU 資工；做過 N=12 的自聲跟讀受試者內實驗，
+          所以我知道<b>哪些宣稱撐得住、哪些撐不住</b>。</p>
+        <div class="box a">
+          <p class="t"><b>我缺的很具體：</b>一位語音／ML 工程 co-founder，
+            以及第一批真的會每天用的使用者。</p>
+        </div>
+      </div>
+      <div class="stack">
+        <div class="lab g">今晚我要的三件事</div>
+        <ul>
+          <li><b>10 個願意連續用 7 天的人。</b>你聽 podcast 學英文嗎？現在就可以裝</li>
+          <li><b>一位語音／ML 背景的共同創辦人</b>，或幫我引薦一位</li>
+          <li><b>一場與早期投資人或加速器的引薦</b></li>
+        </ul>
+        <div class="box g">
+          <p class="t" style="font-size:1.62cqw"><b>攤位 08 號。</b>來按一下我手機上的返回鍵，
+            30 秒你就會看到它變成資料。</p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="bot"><span>蔡秉叡 Ray Tsai · ECHO · BOOTH 08</span><span>10 / 10 — 5:00</span></div>
+</section>

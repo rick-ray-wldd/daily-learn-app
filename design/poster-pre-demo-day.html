@@ -95,6 +95,30 @@
     letter-spacing: -0.02em;
   }
   .wordmark span { color: var(--signal); }
+  .wordmark .booth {
+    font-family: var(--mono);
+    font-size: 0.44em;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    color: #F3F6F4;
+    background: var(--signal);
+    padding: 0.28em 0.6em;
+    margin-left: 0.3em;
+    vertical-align: 0.22em;
+  }
+
+  /* 破冰提問 —— 攤位巡禮學習單上印的四題，逐題作答 */
+  .icebreak { display: grid; gap: 1.15cqw; }
+  .qa { display: grid; gap: 0.34cqw; }
+  .qa .q {
+    font-family: var(--mono);
+    font-size: 1.16cqw;
+    color: var(--guess);
+    letter-spacing: 0.02em;
+    line-height: 1.35;
+  }
+  .qa .a { font-size: 1.42cqw; line-height: 1.42; color: var(--ink-mid); }
+  .qa .a b { color: var(--ink); font-weight: 600; }
 
   h1 {
     font-family: var(--display);
@@ -296,8 +320,8 @@
   <!-- 1 ─ masthead ────────────────────────────────────────── -->
   <header class="masthead">
     <div class="brandline">
-      <div class="wordmark">Echo<span>.</span></div>
-      <div class="eyebrow">NTU Silicon Valley 2026 · Pre-Demo Day 08.17 · Startup Island TW</div>
+      <div class="wordmark">Echo<span>.</span> <b class="booth">攤位 08</b></div>
+      <div class="eyebrow">Demo Day 2026 · Aug 17 · Startup Island Taiwan — Silicon Valley Hub</div>
     </div>
 
     <h1>You already told us what you didn&rsquo;t understand.</h1>
@@ -447,22 +471,44 @@
     <div class="col">
       <h2>現在跑得動的</h2>
       <div class="now">
-        <div class="row"><span class="mark on">✓</span><span><b>端到端閉環</b>：倒帶 → 逐字稿 → 診斷 → 練習 → 排程，全程跑通</span></div>
-        <div class="row"><span class="mark on">✓</span><span><b>鎖定畫面的倒帶也算</b>：螢幕關著按的往回鍵，用位置取樣推斷出來</span></div>
-        <div class="row"><span class="mark on">✓</span><span><b>兩點框選</b>：單手、走路中指得出「就是這幾個字」</span></div>
-        <div class="row"><span class="mark on">✓</span><span><b>「我聽不出這裡有幾個字」</b>——切分失敗的專用出口</span></div>
-        <div class="row"><span class="mark on">✓</span><span><b>難度帶 1–5</b>：從逐字稿的語速與詞彙即時估，量出來的與猜的畫得不一樣</span></div>
+        <div class="row"><span class="mark on">✓</span><span><b>端到端閉環</b>：倒帶 → 逐字稿 → 診斷 → 練習 → 排程，全自動</span></div>
+        <div class="row"><span class="mark on">✓</span><span><b>鎖定畫面的倒帶也接得到</b>（螢幕關著按的往回鍵）</span></div>
+        <div class="row"><span class="mark on">✓</span><span><b>兩點框選</b>＋「<b>我聽不出這裡有幾個字</b>」切分出口</span></div>
+        <div class="row"><span class="mark on">✓</span><span><b>難度帶 1–5</b>：量出來的與猜的，畫得不一樣</span></div>
+      </div>
+
+      <h2>你手上那張學習單的四題</h2>
+      <div class="icebreak">
+        <div class="qa">
+          <div class="q">Q · 想解決什麼問題？做到哪一步？</div>
+          <div class="a">語言 app 教的是<b>它的課綱</b>，不是你真正漏接的英語。
+            上面那條管線<b>已經全自動跑通</b>——但只在我自己身上（N=1，第 5 週）。</div>
+        </div>
+        <div class="qa">
+          <div class="q">Q · 第一批使用者是誰？為什麼願意付費？</div>
+          <div class="a"><b>在美的非母語留學生與早期職場工作者</b>——已經在用英語生活卻仍聽不全，
+            痛得最深、付費意願最高。<b>我就在他們中間。</b></div>
+        </div>
+        <div class="qa">
+          <div class="q">Q · 來矽谷最想拿到什麼？</div>
+          <div class="a">一位<b>語音／ML 共同創辦人</b>，以及<b>10 個願意連續用 7 天的人</b>。</div>
+        </div>
+        <div class="qa">
+          <div class="q">Q · 接下來三個月最重要的里程碑？</div>
+          <div class="a"><b>隔天回來率。</b>他昨天倒帶的東西，明天願不願意打開來練——
+            這一個數字決定這個產品成不成立，其他都是裝飾。</div>
+        </div>
       </div>
 
       <h2>接下來</h2>
       <div class="next-list">
         <div class="nx">
-          <div class="nx-t">動態島 / 鎖屏選擇題 <em>W7</em></div>
-          <div class="nx-d">今天的難點常駐在鎖定畫面上，三選一，按了就換下一題——不必打開 app。</div>
+          <div class="nx-t">鎖屏／動態島選擇題 <em>W7</em></div>
+          <div class="nx-d">難點常駐在鎖定畫面，三選一，按了就換下一題——不必打開 app。</div>
         </div>
         <div class="nx">
           <div class="nx-t">情境提醒 <em>W8</em></div>
-          <div class="nx-d">你在藥局門口時，才把你上週在 podcast 裡卡住的那個藥名還給你。<b>編碼特定性</b>：在原情境提取，記得住。</div>
+          <div class="nx-d">你走到藥局門口，才把你上週在 podcast 裡卡住的那個藥名還給你。</div>
         </div>
         <div class="nx">
           <div class="nx-t">耳機真實生活模式 <em>Q4</em></div>
