@@ -38,10 +38,17 @@
     --guess-soft:  #F0E4CC;
     --track:   #3E5261;   /* neutral chrome */
 
-    --display: -apple-system, BlinkMacSystemFont, "Helvetica Neue", "Segoe UI", sans-serif;
+    /* ⚠️ 這個堆疊**必須含 CJK**。原本只有 -apple-system / Helvetica Neue /
+       Segoe UI，一個中文字型都沒有——結果 h2 裡的中文在 PDF 裡整段消失，
+       只剩下拉丁字（「語言 app 的個人化是假的。」印出來只有 "app"）。
+       字體 fallback 是逐字元的，所以補上 CJK 不會動到英文字的長相。 */
+    --display: -apple-system, BlinkMacSystemFont, "Helvetica Neue", "Segoe UI",
+               "PingFang TC", "Noto Sans TC", "Microsoft JhengHei", sans-serif;
     --body:    -apple-system, BlinkMacSystemFont, "PingFang TC", "Noto Sans TC",
                "Microsoft JhengHei", "Helvetica Neue", sans-serif;
-    --mono:    ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+    /* mono 同理：eyebrow 與標籤偶爾夾中文，等寬字型全都沒有 CJK。 */
+    --mono:    ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas,
+               "PingFang TC", "Noto Sans TC", monospace;
   }
 
   * { box-sizing: border-box; }
@@ -69,14 +76,76 @@
     grid-template-rows: auto 1fr auto;
     gap: 2.4cqw;
     box-shadow: 0 2px 18px rgba(20,25,27,0.18);
+    position: relative;
     overflow: hidden;
   }
 
+
+  /* ── 反白頁：整組 token 在這裡重新定義 ─────────────────────
+     不是逐條寫 .invert .foo { color: ... }，而是把 --paper / --ink 這幾個
+     token 在 .slide.invert 上重新賦值——`.slide` 的 `background: var(--paper)`
+     會在**自己這個元素**上解析，所以一組覆寫就翻轉整頁，子元素一行都不用改。
+
+     為什麼要有反白頁：一份簡報每一頁都是白的，本身就是套版的樣子。首尾兩頁
+     深底是編輯設計的基本節奏——它讓中間那八頁的白看起來是選擇，而不是預設。
+
+     綠色不能沿用 #0B7A46：那個深度是為淺底調的，放在 #14191B 上對比不足。
+     反白頁改用提亮版 #4FCB92，色相不動（語意還是「學習者動手了」）。 */
+  .slide.invert {
+    --paper:  #14191B;
+    --panel:  #1D2326;
+    --ink:    #F1F4F2;
+    --ink-mid:#AEB9B5;
+    --ink-dim:#7E8985;
+    --rule:   #2C3437;
+    --signal: #4FCB92;
+    --signal-soft: #16332A;
+    --guess:  #E0A94A;
+    --guess-soft:  #33291A;
+    --track:  #7D93A6;
+  }
+  /* mark 是單色剪影 + alpha，invert(1) 只翻 RGB、alpha 保留，
+     #14191B → 近白。比另外產一份反白資產省事，而且不會有兩份走鐘。 */
+  .slide.invert .brand .mark { filter: invert(1); }
+
+  /* ── 等角網格 ────────────────────────────────────────────
+     30° / 150° 是**立方體 logo 的軸線**，不是隨手挑的角度——所以它是這個
+     產品的紋理，不是貼上去的裝飾。透明度壓到 0.05：三公尺外看不出有格線，
+     只覺得那片深色「有東西」而不是一塊死黑。
+
+     用 mask 讓它從左邊淡出：文字在左半邊，紋理只留在右邊那片原本空著的地方。 */
+  .slide.invert::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    background-image:
+      repeating-linear-gradient(30deg,  rgba(241,244,242,.05) 0 1px, transparent 1px 2.2cqw),
+      repeating-linear-gradient(-30deg, rgba(241,244,242,.05) 0 1px, transparent 1px 2.2cqw);
+    -webkit-mask-image: linear-gradient(100deg, transparent 34%, #000 88%);
+    mask-image: linear-gradient(100deg, transparent 34%, #000 88%);
+  }
+  .slide > * { position: relative; z-index: 1; }
+
   /* ── chrome ──────────────────────────────────────────────── */
+  /* 頁首的線改成**刻度尺規**：一條主線 + 每 2.4cqw 一根短刻度。
+     那是儀器圖上時間軸的語彙——同一份簡報裡的時間軸圖與頁首用同一種線，
+     整份文件才像出自同一個人的手，而不是模板加內容。 */
   .top {
     display: flex; justify-content: space-between; align-items: baseline;
     gap: 2cqw;
-    border-bottom: 1px solid var(--rule); padding-bottom: 1.1cqw;
+    border-bottom: 0;
+    padding-bottom: 1.35cqw;
+    /* 刻度在淺底上比在深底上顯眼得多（同一個 --rule，對比不同）。
+       所以刻度用比主線更淡的色，而且縮短到 0.26cqw——它要像尺規上的刻痕，
+       不是一條虛線。深底頁的 --rule 本來就低對比，同一組值在那邊剛好。 */
+    background-image:
+      linear-gradient(var(--rule), var(--rule)),
+      repeating-linear-gradient(90deg, color-mix(in srgb, var(--rule) 55%, transparent) 0 1px, transparent 1px 3.2cqw);
+    background-size: 100% 1px, 100% 0.26cqw;
+    background-position: left calc(100% - 0.42cqw), left bottom;
+    background-repeat: no-repeat;
   }
   .eyebrow {
     font-family: var(--mono); font-size: 1.08cqw; letter-spacing: 0.16em;
@@ -172,7 +241,7 @@
 </style>
 
 <!-- ═══ 1 · TITLE ═══════════════════════════════════════════ -->
-<section class="slide">
+<section class="slide invert">
   <div class="top">
     <div class="brand"><i class="mark" aria-hidden="true"></i><div class="eyebrow">Demo Day 2026 · Startup Island Taiwan — Silicon Valley Hub</div></div>
     <div class="clock">BOOTH 08</div>
@@ -432,7 +501,7 @@
 </section>
 
 <!-- ═══ 10 · TEAM + ASK ═════════════════════════════════════ -->
-<section class="slide">
+<section class="slide invert">
   <div class="top"><div class="brand"><i class="mark" aria-hidden="true"></i><div class="eyebrow">09 — Team &amp; Ask</div></div><div class="clock">4:30</div></div>
   <div class="body">
     <div class="two">

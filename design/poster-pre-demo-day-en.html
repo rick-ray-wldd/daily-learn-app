@@ -38,10 +38,17 @@
     --guess-soft:  #F0E4CC;
     --track:   #3E5261;
 
-    --display: -apple-system, BlinkMacSystemFont, "Helvetica Neue", "Segoe UI", sans-serif;
+    /* ⚠️ 這個堆疊**必須含 CJK**。原本只有 -apple-system / Helvetica Neue /
+       Segoe UI，一個中文字型都沒有——結果 h2 裡的中文在 PDF 裡整段消失，
+       只剩下拉丁字（「語言 app 的個人化是假的。」印出來只有 "app"）。
+       字體 fallback 是逐字元的，所以補上 CJK 不會動到英文字的長相。 */
+    --display: -apple-system, BlinkMacSystemFont, "Helvetica Neue", "Segoe UI",
+               "PingFang TC", "Noto Sans TC", "Microsoft JhengHei", sans-serif;
     --body:    -apple-system, BlinkMacSystemFont, "PingFang TC", "Noto Sans TC",
                "Microsoft JhengHei", "Helvetica Neue", sans-serif;
-    --mono:    ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+    /* mono 同理：eyebrow 與標籤偶爾夾中文，等寬字型全都沒有 CJK。 */
+    --mono:    ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas,
+               "PingFang TC", "Noto Sans TC", monospace;
   }
 
   * { box-sizing: border-box; }
