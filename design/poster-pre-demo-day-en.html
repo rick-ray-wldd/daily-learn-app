@@ -283,6 +283,54 @@
     color: var(--ink-dim);
   }
 
+
+  /* ── 輸入層的差異 ─────────────────────────────────────────
+     這是整張海報唯一直接點名競品的地方，所以它要看起來與旁邊的證據段不同。
+     `.chain` 用箭頭串起三段媒介：現在（綠、實心）→ 下一步 → 終局（漸淡）。
+     漸淡是誠實的視覺化——後兩段還沒發生，畫得跟第一段一樣重就是在宣稱它們存在。 */
+  .chain {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.7cqw;
+    margin: 0.5cqw 0 0.2cqw;
+  }
+  .chain span {
+    font-size: 1.2cqw;
+    line-height: 1.3;
+    padding: 0.5cqw 1cqw;
+    border: 1px solid var(--rule);
+    color: var(--ink-dim);
+    white-space: nowrap;
+  }
+  /* 只有第一段是實心的：它是唯一今天真的能用的。 */
+  .chain span.on {
+    border-color: var(--signal);
+    background: var(--signal-soft);
+    color: var(--signal);
+    font-weight: 600;
+  }
+  .chain i {
+    font-style: normal;
+    color: var(--ink-dim);
+    font-size: 1.1cqw;
+  }
+
+
+  /* ── 前作的實績（Mirror）─────────────────────────────────────
+     這一塊唯一的功能是回答「憑什麼相信你做得出來」。它刻意**同時**寫上
+     出貨數字與那個 null result——因為只寫數字會被問「效果呢」，
+     只寫 null 會被當成沒東西。兩個一起寫，才是它真正的樣子。 */
+  .prior {
+    border-left: 3px solid var(--signal);
+    background: var(--signal-soft);
+    padding: 0.85cqw 1.2cqw;
+    font-size: 1.14cqw;
+    line-height: 1.46;
+    color: var(--ink);
+  }
+  .prior b { font-weight: 650; }
+
   /* right column */
   .now { display: grid; gap: 0.62cqw; }
   .row {
@@ -536,7 +584,7 @@
         </div>
         <div class="ev">
           <div class="ev-num">n.s.<small>BETWEEN THE TWO</small></div>
-          <div class="ev-txt">The two groups <b>did not differ significantly</b> — forcing the action beats noticing on your own by nothing.</div>
+          <div class="ev-txt">The two groups <b>did not differ significantly</b> — forcing the action adds nothing over noticing it yourself.</div>
         </div>
       </div>
 
@@ -545,26 +593,25 @@
         Hitting rewind <i>is</i> that moment. <b>So we never interrupt.</b>
       </div>
 
-      <div class="evidence">
-        <div class="ev">
-          <div class="ev-num">34–38%<small>VARIANCE EXPLAINED</small></div>
-          <div class="ev-txt">Aural vocabulary + <b>lexical segmentation</b> explain this much of L2 listening.</div>
-        </div>
-        <div class="ev">
-          <div class="ev-num">0<small>RIVALS COLLECTING IT</small></div>
-          <div class="ev-txt">No app collects <i>where the words stop being separable</i>. <b>Text has no connected speech.</b></div>
-        </div>
-      </div>
 
       <p class="cite">
-        Noticing vocabulary holes aids incidental L2 word learning — Bilingualism: Lang.&nbsp;&amp;&nbsp;Cognition ·
-        Field (2003), Lexical Segmentation in L2 Listening
+        Bilingualism: Lang.&nbsp;&amp;&nbsp;Cognition · Field (2003), Lexical Segmentation in L2 Listening
       </p>
 
-      <h2>Not an English product. A listening one.</h2>
-      <p class="ev-txt"><b>The market is language learning.</b> English is just my own gap — a rewind
-        carries no language. Swap the speech model and the same loop runs on
-        <b>Mandarin, Japanese or Spanish</b>.</p>
+      <h2>The difference is the input</h2>
+      <p class="ev-txt"><b>Duolingo-style apps feed you a syllabus</b> — words and patterns you
+        never missed. <b>Echo&rsquo;s input is the sentence you didn&rsquo;t catch today</b>, from a source you pick.</p>
+      <div class="chain">
+        <span class="on">your podcasts</span><i>→</i><span>YouTube · Netflix</span><i>→</i><span>earbuds, real talk</span>
+      </div>
+      <p class="ev-txt"><b>The moat is not any one feature.</b> It is that input plus what sits behind
+        it: AI difficulty diagnosis, label analysis, own-voice shadowing — none of it English-specific.</p>
+      <div class="prior">
+        <b>I have shipped the own-voice piece before.</b> Mirror &middot; AI Speech Coach is live on the
+        App Store — <b>502 signups in 4 weeks, zero ad spend, 90.2% onboarding</b>. But my N=12 study is
+        precise: <b>subjective preference swept all four dimensions; objective measures did not separate.</b>
+        It buys willingness to speak, not efficacy — Echo still grades on the original.
+      </div>
     </div>
 
     <div class="col">

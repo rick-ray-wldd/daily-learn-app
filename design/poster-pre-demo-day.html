@@ -282,6 +282,54 @@
     color: var(--ink-dim);
   }
 
+
+  /* ── 輸入層的差異 ─────────────────────────────────────────
+     這是整張海報唯一直接點名競品的地方，所以它要看起來與旁邊的證據段不同。
+     `.chain` 用箭頭串起三段媒介：現在（綠、實心）→ 下一步 → 終局（漸淡）。
+     漸淡是誠實的視覺化——後兩段還沒發生，畫得跟第一段一樣重就是在宣稱它們存在。 */
+  .chain {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.7cqw;
+    margin: 0.5cqw 0 0.2cqw;
+  }
+  .chain span {
+    font-size: 1.2cqw;
+    line-height: 1.3;
+    padding: 0.5cqw 1cqw;
+    border: 1px solid var(--rule);
+    color: var(--ink-dim);
+    white-space: nowrap;
+  }
+  /* 只有第一段是實心的：它是唯一今天真的能用的。 */
+  .chain span.on {
+    border-color: var(--signal);
+    background: var(--signal-soft);
+    color: var(--signal);
+    font-weight: 600;
+  }
+  .chain i {
+    font-style: normal;
+    color: var(--ink-dim);
+    font-size: 1.1cqw;
+  }
+
+
+  /* ── 前作的實績（Mirror）─────────────────────────────────────
+     這一塊唯一的功能是回答「憑什麼相信你做得出來」。它刻意**同時**寫上
+     出貨數字與那個 null result——因為只寫數字會被問「效果呢」，
+     只寫 null 會被當成沒東西。兩個一起寫，才是它真正的樣子。 */
+  .prior {
+    border-left: 3px solid var(--signal);
+    background: var(--signal-soft);
+    padding: 0.85cqw 1.2cqw;
+    font-size: 1.14cqw;
+    line-height: 1.46;
+    color: var(--ink);
+  }
+  .prior b { font-weight: 650; }
+
   /* right column */
   .now { display: grid; gap: 0.62cqw; }
   .row {
@@ -543,25 +591,26 @@
         而按返回鍵，就是那個意識發生的瞬間。<b>所以我們不必打斷他。</b>
       </div>
 
-      <div class="evidence">
-        <div class="ev">
-          <div class="ev-num">34–38%<small>變異解釋</small></div>
-          <div class="ev-txt">聽覺詞彙量 + <b>詞界切分能力</b>合起來解釋的聽力成績變異。切錯一個詞界，後面整串話跟著崩。</div>
-        </div>
-        <div class="ev">
-          <div class="ev-num">0<small>競品在收</small></div>
-          <div class="ev-txt">沒有任何 app 在收集「學習者連詞界都切不出來的位置」。<b>閱讀 app 永遠看不到它——文字裡沒有連音。</b></div>
-        </div>
-      </div>
 
       <p class="cite">
-        Noticing vocabulary holes aids incidental L2 word learning — Bilingualism: Lang.&nbsp;&amp;&nbsp;Cognition ·
-        Field (2003), Lexical Segmentation in L2 Listening
+        Bilingualism: Lang.&nbsp;&amp;&nbsp;Cognition · Field (2003), Lexical Segmentation in L2 Listening
       </p>
 
-      <h2>這不是英語產品，是聽力產品</h2>
-      <p class="ev-txt"><b>市場是語言學習。</b>英語只是我自己的缺口——倒帶這個訊號不帶語言，
-        換掉語音模型，同一條迴圈就跑在<b>中文、日文或西班牙文</b>上。</p>
+      <h2>差別在「輸入」，不在功能</h2>
+      <p class="ev-txt"><b>多鄰國那類產品的輸入是課綱</b>——它給你新的單字、新的句型，
+        而那些你根本沒漏接過。<b>Echo 的輸入是你今天真的沒聽懂的那一句</b>，
+        而且來源你自己挑。</p>
+      <div class="chain">
+        <span class="on">你訂的 podcast</span><i>→</i><span>YouTube · Netflix</span><i>→</i><span>耳機收真實對話</span>
+      </div>
+      <p class="ev-txt"><b>護城河不是任何單一功能</b>，是這條輸入 ＋ 背後那一套：AI 難點鑑定、
+        標註分析、自聲跟讀。訊號本身不帶語言，換掉語音模型就跑<b>中文、日文</b>。</p>
+      <div class="prior">
+        <b>自聲那一塊我已經出貨過。</b>Mirror · AI Speech Coach（App Store 上架）把你的回答
+        用你自己的克隆聲音講回來：<b>4 週 502 註冊、零廣告、onboarding 完成率 90.2%</b>。
+        但同一份 N=12 實驗要講精確：<b>主觀四個維度全勝，客觀指標沒有分離</b>——所以自聲買到的是
+        <b>願意開口</b>，不是療效。Echo 的驗收一律回到原音。
+      </div>
     </div>
 
     <div class="col">
